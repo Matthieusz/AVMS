@@ -1,0 +1,43 @@
+package config
+
+import (
+	ftm "fmt"
+	"log"
+	"os"
+
+	"github.com/joho/godotenv"
+)
+
+type Config struct {
+	PublicHost string
+	Port       string
+	DBUser     string
+	DBPassword string
+	DBAddr     string
+	DBName     string
+}
+
+var Envs = loadConfig()
+
+func loadConfig() *Config {
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
+	return &Config{
+		PublicHost: getEnv("PUBLIC_HOST", "http://localhost"),
+		Port:       getEnv("PORT", "8080"),
+		DBUser:     getEnv("DB_USER", "root"),
+		DBPassword: getEnv("DB_PASSWORD", ""),
+		DBAddr:     ftm.Sprintf("%s:%s", getEnv("DB_HOST", "127.0.0.1"), getEnv("DB_PORT", "3306")),
+		DBName:     getEnv("DB_NAME", "go-ecom"),
+	}
+}
+
+func getEnv(key, defaultValue string) string {
+	if value, exists := os.LookupEnv(key); exists {
+		return value
+	}
+
+	return defaultValue
+}
