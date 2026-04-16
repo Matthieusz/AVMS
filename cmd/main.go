@@ -1,9 +1,13 @@
 package main
 
 import (
-	"fmt"
+	"github.com/Kibaru/go-level-structure/cmd/api"
+	"github.com/Kibaru/go-level-structure/pkg/config"
+	"github.com/Kibaru/go-level-structure/pkg/logger"
 )
 
 func main() {
-	fmt.Println("Hello World!")
+	logger.Init()
+	logger.Info("Starting AVMS API server on port " + config.Envs.Port)
+	api.Start()
 }
