@@ -68,25 +68,25 @@ function App() {
   const queryClient = useQueryClient();
   const [deletingItemId, setDeletingItemId] = useState<number | null>(null);
 
-  const healthQuery = useQuery({
+  const healthQuery = useQuery<HealthResponse, Error>({
     queryKey: ["health"],
     queryFn: getHealth,
     refetchInterval: 30_000,
   });
 
-  const itemsQuery = useQuery({
+  const itemsQuery = useQuery<ListItemsResponse, Error>({
     queryKey: ["items"],
     queryFn: getItems,
   });
 
-  const createItemMutation = useMutation({
+  const createItemMutation = useMutation<Item, Error, string>({
     mutationFn: createItem,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["items"] });
     },
   });
 
-  const deleteItemMutation = useMutation({
+  const deleteItemMutation = useMutation<void, Error, number>({
     mutationFn: deleteItem,
     onSuccess: () => {
       setDeletingItemId(null);
@@ -202,7 +202,7 @@ function App() {
             <form.Field
               name="value"
               validators={{
-                onSubmit: ({ value }) => {
+                onSubmit: ({ value }: { value: string }): string | undefined => {
                   if (value.trim().length < 2) {
                     return "Please enter at least 2 characters.";
                   }
@@ -227,8 +227,8 @@ function App() {
                     disabled={createItemMutation.isPending}
                     className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                   />
-                  {field.state.meta.errors[0] ? (
-                    <p className="text-sm text-red-700">{field.state.meta.errors[0]}</p>
+                  {String(field.state.meta.errors[0] ?? "") ? (
+                    <p className="text-sm text-red-700">{String(field.state.meta.errors[0])}</p>
                   ) : null}
                 </div>
               )}
@@ -241,7 +241,9 @@ function App() {
 
           {createItemMutation.isError ? (
             <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {createItemMutation.error.message}
+              {createItemMutation.error instanceof Error
+                ? createItemMutation.error.message
+                : "An error occurred"}
             </p>
           ) : null}
 
@@ -251,7 +253,7 @@ function App() {
 
           {itemsQuery.isError ? (
             <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {itemsQuery.error.message}
+              {itemsQuery.error instanceof Error ? itemsQuery.error.message : "An error occurred"}
             </p>
           ) : null}
 
@@ -296,7 +298,9 @@ function App() {
 
           {deleteItemMutation.isError ? (
             <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {deleteItemMutation.error.message}
+              {deleteItemMutation.error instanceof Error
+                ? deleteItemMutation.error.message
+                : "An error occurred"}
             </p>
           ) : null}
         </section>
