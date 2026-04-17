@@ -241,9 +241,7 @@ function App() {
 
           {createItemMutation.isError ? (
             <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {createItemMutation.error instanceof Error
-                ? createItemMutation.error.message
-                : "An error occurred"}
+              {createItemMutation.error.message}
             </p>
           ) : null}
 
@@ -253,7 +251,7 @@ function App() {
 
           {itemsQuery.isError ? (
             <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {itemsQuery.error instanceof Error ? itemsQuery.error.message : "An error occurred"}
+              {itemsQuery.error.message}
             </p>
           ) : null}
 
@@ -298,9 +296,7 @@ function App() {
 
           {deleteItemMutation.isError ? (
             <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {deleteItemMutation.error instanceof Error
-                ? deleteItemMutation.error.message
-                : "An error occurred"}
+              {deleteItemMutation.error.message}
             </p>
           ) : null}
         </section>
