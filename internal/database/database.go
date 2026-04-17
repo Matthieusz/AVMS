@@ -19,9 +19,24 @@ type Service interface {
 	// The keys and values in the map are service-specific.
 	Health() map[string]string
 
+	// CreateItem inserts a new record in the database.
+	CreateItem(ctx context.Context, value string) (Item, error)
+
+	// ListItems returns all stored records.
+	ListItems(ctx context.Context) ([]Item, error)
+
+	// DeleteItem removes a record by ID.
+	DeleteItem(ctx context.Context, id int64) (bool, error)
+
 	// Close terminates the database connection.
 	// It returns an error if the connection cannot be closed.
 	Close() error
+}
+
+type Item struct {
+	ID        int64  `json:"id"`
+	Value     string `json:"value"`
+	CreatedAt string `json:"createdAt"`
 }
 
 type service struct {
@@ -49,7 +64,28 @@ func New() Service {
 	dbInstance = &service{
 		db: db,
 	}
+
+	if err := dbInstance.initSchema(); err != nil {
+		log.Fatal(err)
+	}
+
 	return dbInstance
+}
+
+func (s *service) initSchema() error {
+	const schema = `
+		CREATE TABLE IF NOT EXISTS entries (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			value TEXT NOT NULL,
+			created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+		);
+	`
+
+	if _, err := s.db.Exec(schema); err != nil {
+		return fmt.Errorf("failed to initialize schema: %w", err)
+	}
+
+	return nil
 }
 
 // Health checks the health of the database connection by pinging the database.
@@ -65,13 +101,17 @@ func (s *service) Health() map[string]string {
 	if err != nil {
 		stats["status"] = "down"
 		stats["error"] = fmt.Sprintf("db down: %v", err)
-		log.Fatalf("db down: %v", err) // Log the error and terminate the program
+		stats["service"] = "api"
+		stats["timestamp"] = time.Now().UTC().Format(time.RFC3339)
+		log.Printf("db down: %v", err)
 		return stats
 	}
 
 	// Database is up, add more statistics
 	stats["status"] = "up"
 	stats["message"] = "It's healthy"
+	stats["service"] = "api"
+	stats["timestamp"] = time.Now().UTC().Format(time.RFC3339)
 
 	// Get database stats (like open connections, in use, idle, etc.)
 	dbStats := s.db.Stats()
@@ -101,6 +141,64 @@ func (s *service) Health() map[string]string {
 	}
 
 	return stats
+}
+
+func (s *service) CreateItem(ctx context.Context, value string) (Item, error) {
+	result, err := s.db.ExecContext(ctx, "INSERT INTO entries(value) VALUES (?)", value)
+	if err != nil {
+		return Item{}, fmt.Errorf("failed to insert item: %w", err)
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return Item{}, fmt.Errorf("failed to get inserted item id: %w", err)
+	}
+
+	var item Item
+	err = s.db.QueryRowContext(ctx, "SELECT id, value, created_at FROM entries WHERE id = ?", id).
+		Scan(&item.ID, &item.Value, &item.CreatedAt)
+	if err != nil {
+		return Item{}, fmt.Errorf("failed to fetch inserted item: %w", err)
+	}
+
+	return item, nil
+}
+
+func (s *service) ListItems(ctx context.Context) ([]Item, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT id, value, created_at FROM entries ORDER BY id DESC")
+	if err != nil {
+		return nil, fmt.Errorf("failed to list items: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]Item, 0)
+	for rows.Next() {
+		var item Item
+		if err := rows.Scan(&item.ID, &item.Value, &item.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan item: %w", err)
+		}
+		items = append(items, item)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed while iterating items: %w", err)
+	}
+
+	return items, nil
+}
+
+func (s *service) DeleteItem(ctx context.Context, id int64) (bool, error) {
+	result, err := s.db.ExecContext(ctx, "DELETE FROM entries WHERE id = ?", id)
+	if err != nil {
+		return false, fmt.Errorf("failed to delete item: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("failed to determine deleted rows: %w", err)
+	}
+
+	return rowsAffected > 0, nil
 }
 
 // Close closes the database connection.

@@ -25,10 +25,12 @@ tmp/
 # .env file
 .env
 
+# Local sqlite databases
+*.db
+
 # Project build
 main
 *templ.go
 
 # OS X generated file
 .DS_Store
-
