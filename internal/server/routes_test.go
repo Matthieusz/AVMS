@@ -1,25 +1,103 @@
 package server
 
 import (
-	"github.com/gin-gonic/gin"
+	"bytes"
+	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/gin-gonic/gin"
+	"template/internal/database"
 )
+
+type stubDatabaseService struct {
+	createItemCalls int
+	deleteItemCalls int
+
+	createItemFunc func(ctx context.Context, value string) (database.Item, error)
+	deleteItemFunc func(ctx context.Context, id int64) (bool, error)
+}
+
+func (s *stubDatabaseService) Health() map[string]string {
+	return map[string]string{
+		"status": "up",
+	}
+}
+
+func (s *stubDatabaseService) CreateItem(ctx context.Context, value string) (database.Item, error) {
+	s.createItemCalls++
+
+	if s.createItemFunc != nil {
+		return s.createItemFunc(ctx, value)
+	}
+
+	return database.Item{
+		ID:        1,
+		Value:     value,
+		CreatedAt: "2026-01-01T00:00:00Z",
+	}, nil
+}
+
+func (s *stubDatabaseService) ListItems(_ context.Context) ([]database.Item, error) {
+	return []database.Item{}, nil
+}
+
+func (s *stubDatabaseService) DeleteItem(ctx context.Context, id int64) (bool, error) {
+	s.deleteItemCalls++
+
+	if s.deleteItemFunc != nil {
+		return s.deleteItemFunc(ctx, id)
+	}
+
+	return true, nil
+}
+
+func (s *stubDatabaseService) Close() error {
+	return nil
+}
+
+func makeRequest(t *testing.T, handler http.Handler, method, target string, body []byte) *httptest.ResponseRecorder {
+	t.Helper()
+
+	req, err := http.NewRequest(method, target, bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	return rr
+}
+
+func decodeErrorMessage(t *testing.T, body *bytes.Buffer) string {
+	t.Helper()
+
+	var payload struct {
+		Error string `json:"error"`
+	}
+
+	if err := json.Unmarshal(body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to decode error body: %v", err)
+	}
+
+	return payload.Error
+}
 
 func TestHelloWorldHandler(t *testing.T) {
 	s := &Server{}
 	r := gin.New()
 	r.GET("/", s.HelloWorldHandler)
-	// Create a test HTTP request
-	req, err := http.NewRequest("GET", "/", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Create a ResponseRecorder to record the response
-	rr := httptest.NewRecorder()
-	// Serve the HTTP request
-	r.ServeHTTP(rr, req)
+	rr := makeRequest(t, r, http.MethodGet, "/", nil)
+
 	// Check the status code
 	if status := rr.Code; status != http.StatusOK {
 		t.Errorf("Handler returned wrong status code: got %v want %v", status, http.StatusOK)
@@ -28,5 +106,190 @@ func TestHelloWorldHandler(t *testing.T) {
 	expected := "{\"message\":\"Hello World\"}"
 	if rr.Body.String() != expected {
 		t.Errorf("Handler returned unexpected body: got %v want %v", rr.Body.String(), expected)
+	}
+}
+
+func TestKEMCheckHandler(t *testing.T) {
+	s := &Server{}
+	r := gin.New()
+	r.GET("/api/pqc/kem-check", s.kemCheckHandler)
+
+	rr := makeRequest(t, r, http.MethodGet, "/api/pqc/kem-check", nil)
+
+	if rr.Code != http.StatusOK {
+		if rr.Code != http.StatusInternalServerError {
+			t.Fatalf("KEM check failed with status %d and body %s", rr.Code, rr.Body.String())
+		}
+
+		if errMessage := decodeErrorMessage(t, rr.Body); errMessage != "failed to run KEM check" {
+			t.Fatalf("unexpected error message: got %q", errMessage)
+		}
+
+		return
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("failed to decode response JSON: %v", err)
+	}
+
+	if _, exists := body["clientSharedSecretPreview"]; exists {
+		t.Fatal("response must not expose client shared secret preview")
+	}
+
+	if _, exists := body["serverSharedSecretPreview"]; exists {
+		t.Fatal("response must not expose server shared secret preview")
+	}
+
+	liboqsVersion, ok := body["liboqsVersion"].(string)
+	if !ok || liboqsVersion == "" {
+		t.Fatal("expected liboqsVersion to be present")
+	}
+
+	enabledKEMs, ok := body["enabledKEMs"].([]any)
+	if !ok || len(enabledKEMs) == 0 {
+		t.Fatal("expected at least one enabled KEM")
+	}
+
+	kemName, ok := body["kemName"].(string)
+	if !ok || kemName != "ML-KEM-512" {
+		t.Fatalf("unexpected KEM name: got %#v", body["kemName"])
+	}
+
+	sharedSecretsCoincide, ok := body["sharedSecretsCoincide"].(bool)
+	if !ok {
+		t.Fatalf("sharedSecretsCoincide should be a bool, got %#v", body["sharedSecretsCoincide"])
+	}
+
+	if !sharedSecretsCoincide {
+		t.Fatal("expected shared secrets to coincide")
+	}
+}
+
+func TestCreateItemHandlerRejectsInvalidJSON(t *testing.T) {
+	db := &stubDatabaseService{}
+	s := &Server{db: db}
+	handler := s.RegisterRoutes()
+
+	rr := makeRequest(t, handler, http.MethodPost, "/api/items", []byte(`{"value":`))
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rr.Code)
+	}
+
+	if errMessage := decodeErrorMessage(t, rr.Body); errMessage != "invalid request body" {
+		t.Fatalf("unexpected error message: got %q", errMessage)
+	}
+
+	if db.createItemCalls != 0 {
+		t.Fatalf("expected create item not to be called, got %d calls", db.createItemCalls)
+	}
+}
+
+func TestCreateItemHandlerRejectsBlankValue(t *testing.T) {
+	db := &stubDatabaseService{}
+	s := &Server{db: db}
+	handler := s.RegisterRoutes()
+
+	rr := makeRequest(t, handler, http.MethodPost, "/api/items", []byte(`{"value":"   "}`))
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rr.Code)
+	}
+
+	if errMessage := decodeErrorMessage(t, rr.Body); errMessage != "value is required" {
+		t.Fatalf("unexpected error message: got %q", errMessage)
+	}
+
+	if db.createItemCalls != 0 {
+		t.Fatalf("expected create item not to be called, got %d calls", db.createItemCalls)
+	}
+}
+
+func TestCreateItemHandlerRejectsOversizedBody(t *testing.T) {
+	db := &stubDatabaseService{}
+	s := &Server{db: db}
+	handler := s.RegisterRoutes()
+
+	largeValue := strings.Repeat("a", maxCreateItemBodySize)
+	body := []byte(`{"value":"` + largeValue + `"}`)
+	rr := makeRequest(t, handler, http.MethodPost, "/api/items", body)
+
+	if rr.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected status %d, got %d", http.StatusRequestEntityTooLarge, rr.Code)
+	}
+
+	if errMessage := decodeErrorMessage(t, rr.Body); errMessage != "request body is too large" {
+		t.Fatalf("unexpected error message: got %q", errMessage)
+	}
+
+	if db.createItemCalls != 0 {
+		t.Fatalf("expected create item not to be called, got %d calls", db.createItemCalls)
+	}
+}
+
+func TestDeleteItemHandlerRejectsInvalidIDs(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "non-numeric id", path: "/api/items/not-a-number"},
+		{name: "zero id", path: "/api/items/0"},
+		{name: "negative id", path: "/api/items/-1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := &stubDatabaseService{}
+			s := &Server{db: db}
+			handler := s.RegisterRoutes()
+
+			rr := makeRequest(t, handler, http.MethodDelete, tt.path, nil)
+
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rr.Code)
+			}
+
+			if errMessage := decodeErrorMessage(t, rr.Body); errMessage != "invalid item id" {
+				t.Fatalf("unexpected error message: got %q", errMessage)
+			}
+
+			if db.deleteItemCalls != 0 {
+				t.Fatalf("expected delete item not to be called, got %d calls", db.deleteItemCalls)
+			}
+		})
+	}
+}
+
+func TestAllowedOriginsFromEnv(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{
+			name:  "empty uses default",
+			input: "",
+			want:  []string{defaultAllowedOrigin},
+		},
+		{
+			name:  "parses and deduplicates origins",
+			input: " http://localhost:3000, http://localhost:5173, http://localhost:3000, *, ",
+			want:  []string{"http://localhost:3000", "http://localhost:5173"},
+		},
+		{
+			name:  "only invalid entries falls back",
+			input: " , *, ",
+			want:  []string{defaultAllowedOrigin},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := allowedOriginsFromEnv(tt.input)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("unexpected origins: got %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
