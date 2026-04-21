@@ -7,6 +7,8 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	_ "github.com/joho/godotenv/autoload"
@@ -40,36 +42,56 @@ type Item struct {
 }
 
 type service struct {
-	db *sql.DB
+	db  *sql.DB
+	dsn string
 }
 
 var (
-	dburl      = os.Getenv("BLUEPRINT_DB_URL")
 	dbInstance *service
+	dbMu       sync.Mutex
 )
 
-func New() Service {
+const defaultDBURL = "./test.db"
+
+func New() (Service, error) {
+	dbMu.Lock()
+	defer dbMu.Unlock()
+
 	// Reuse Connection
 	if dbInstance != nil {
-		return dbInstance
+		return dbInstance, nil
 	}
 
+	dburl := databaseURL()
 	db, err := sql.Open("sqlite3", dburl)
 	if err != nil {
-		// This will not be a connection error, but a DSN parse error or
-		// another initialization error.
-		log.Fatal(err)
+		return nil, fmt.Errorf("open sqlite database %q: %w", dburl, err)
 	}
 
-	dbInstance = &service{
-		db: db,
+	instance := &service{
+		db:  db,
+		dsn: dburl,
 	}
 
-	if err := dbInstance.initSchema(); err != nil {
-		log.Fatal(err)
+	if err := instance.initSchema(); err != nil {
+		if closeErr := db.Close(); closeErr != nil {
+			log.Printf("failed to close database after schema init error: %v", closeErr)
+		}
+		return nil, err
 	}
 
-	return dbInstance
+	dbInstance = instance
+
+	return dbInstance, nil
+}
+
+func databaseURL() string {
+	value := strings.TrimSpace(os.Getenv("BLUEPRINT_DB_URL"))
+	if value == "" {
+		return defaultDBURL
+	}
+
+	return value
 }
 
 func (s *service) initSchema() error {
@@ -206,6 +228,6 @@ func (s *service) DeleteItem(ctx context.Context, id int64) (bool, error) {
 // If the connection is successfully closed, it returns nil.
 // If an error occurs while closing the connection, it returns the error.
 func (s *service) Close() error {
-	log.Printf("Disconnected from database: %s", dburl)
+	log.Printf("Disconnected from database: %s", s.dsn)
 	return s.db.Close()
 }
