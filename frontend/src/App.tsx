@@ -1,99 +1,46 @@
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Button } from "./components/ui/button";
-
-interface HealthResponse {
-  status: string;
-  message: string;
-  timestamp: string;
-  service: string;
-}
-
-interface Item {
-  id: number;
-  value: string;
-  createdAt: string;
-}
-
-interface ListItemsResponse {
-  items: Item[];
-}
-
-async function getHealth(): Promise<HealthResponse> {
-  const response = await fetch("/api/health");
-  if (!response.ok) {
-    throw new Error(`Failed to fetch health: HTTP ${response.status}`);
-  }
-
-  return response.json() as Promise<HealthResponse>;
-}
-
-async function getItems(): Promise<ListItemsResponse> {
-  const response = await fetch("/api/items");
-  if (!response.ok) {
-    throw new Error(`Failed to fetch items: HTTP ${response.status}`);
-  }
-
-  return response.json() as Promise<ListItemsResponse>;
-}
-
-async function createItem(value: string): Promise<Item> {
-  const response = await fetch("/api/items", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ value }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to create item: HTTP ${response.status}`);
-  }
-
-  return response.json() as Promise<Item>;
-}
-
-async function deleteItem(id: number): Promise<void> {
-  const response = await fetch(`/api/items/${id}`, {
-    method: "DELETE",
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to delete item: HTTP ${response.status}`);
-  }
-}
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
+import { createItem, deleteItem, getHealth, getItems } from "@/lib/api";
 
 function App() {
   const queryClient = useQueryClient();
   const [deletingItemId, setDeletingItemId] = useState<number | null>(null);
 
-  const healthQuery = useQuery<HealthResponse, Error>({
+  const healthQuery = useQuery({
     queryKey: ["health"],
     queryFn: getHealth,
     refetchInterval: 30_000,
   });
 
-  const itemsQuery = useQuery<ListItemsResponse, Error>({
+  const itemsQuery = useQuery({
     queryKey: ["items"],
     queryFn: getItems,
   });
 
-  const createItemMutation = useMutation<Item, Error, string>({
+  const createItemMutation = useMutation({
     mutationFn: createItem,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["items"] });
+      toast.success("Entry created successfully");
+    },
+    onError: (error) => {
+      toast.error(error.message);
     },
   });
 
-  const deleteItemMutation = useMutation<void, Error, number>({
+  const deleteItemMutation = useMutation({
     mutationFn: deleteItem,
     onSuccess: () => {
       setDeletingItemId(null);
       void queryClient.invalidateQueries({ queryKey: ["items"] });
+      toast.success("Entry removed");
     },
-    onError: () => {
+    onError: (error) => {
       setDeletingItemId(null);
+      toast.error(error.message);
     },
   });
 
@@ -206,7 +153,6 @@ function App() {
                   if (value.trim().length < 2) {
                     return "Please enter at least 2 characters.";
                   }
-
                   return undefined;
                 },
               }}
@@ -225,10 +171,13 @@ function App() {
                     onBlur={field.handleBlur}
                     onChange={(event) => field.handleChange(event.target.value)}
                     disabled={createItemMutation.isPending}
+                    aria-invalid={Boolean(field.state.meta.errors[0])}
                     className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                   />
-                  {String(field.state.meta.errors[0] ?? "") ? (
-                    <p className="text-sm text-red-700">{String(field.state.meta.errors[0])}</p>
+                  {field.state.meta.errors[0] ? (
+                    <p className="text-sm text-red-700" role="alert">
+                      {String(field.state.meta.errors[0])}
+                    </p>
                   ) : null}
                 </div>
               )}
@@ -278,6 +227,7 @@ function App() {
                       void deleteItemMutation.mutateAsync(item.id);
                     }}
                     disabled={deleteItemMutation.isPending && deletingItemId === item.id}
+                    aria-label={`Remove entry ${item.value}`}
                   >
                     {deleteItemMutation.isPending && deletingItemId === item.id
                       ? "Removing..."
