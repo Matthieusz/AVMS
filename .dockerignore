@@ -1,0 +1,55 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+AGENTS.md
+frontend/AGENTS.md
+
+# Build outputs
+main
+avms-api
+*.exe
+*.dll
+*.so
+dist
+tmp
+
+# Dependencies
+node_modules
+vendor
+
+# Test databases
+test.db
+avms.db
+*.db
+
+# IDE
+.vscode
+.idea
+.zed
+
+# Environment files (secrets)
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Frontend build output (we build it inside Docker)
+frontend/dist
+frontend/node_modules
+
+# Air live-reload
+.air.toml
+tmp/
+
+# Test coverage
+coverage.out
+*.cover
