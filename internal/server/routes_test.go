@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"template/internal/database"
+	"github.com/Matthieusz/AVMS/internal/database"
 )
 
 type stubDatabaseService struct {
@@ -95,8 +95,8 @@ func decodeErrorMessage(t *testing.T, body *bytes.Buffer) string {
 func TestHelloWorldHandler(t *testing.T) {
 	s := &Server{}
 	r := gin.New()
-	r.GET("/", s.HelloWorldHandler)
-	rr := makeRequest(t, r, http.MethodGet, "/", nil)
+	r.GET("/api/", s.HelloWorldHandler)
+	rr := makeRequest(t, r, http.MethodGet, "/api/", nil)
 
 	// Check the status code
 	if status := rr.Code; status != http.StatusOK {
@@ -261,7 +261,7 @@ func TestDeleteItemHandlerRejectsInvalidIDs(t *testing.T) {
 	}
 }
 
-func TestAllowedOriginsFromEnv(t *testing.T) {
+func TestParseAllowedOrigins(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
@@ -286,10 +286,116 @@ func TestAllowedOriginsFromEnv(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := allowedOriginsFromEnv(tt.input)
+			got := parseAllowedOrigins(tt.input)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("unexpected origins: got %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestHealthHandler(t *testing.T) {
+	db := &stubDatabaseService{}
+	s := &Server{db: db}
+	handler := s.RegisterRoutes()
+
+	rr := makeRequest(t, handler, http.MethodGet, "/api/health", nil)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, rr.Code)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if body["status"] != "up" {
+		t.Fatalf("unexpected status: got %v", body["status"])
+	}
+}
+
+func TestCreateItemHandlerSuccess(t *testing.T) {
+	db := &stubDatabaseService{}
+	s := &Server{db: db}
+	handler := s.RegisterRoutes()
+
+	rr := makeRequest(t, handler, http.MethodPost, "/api/items", []byte(`{"value":"hello"}`))
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, rr.Code)
+	}
+
+	var item database.Item
+	if err := json.Unmarshal(rr.Body.Bytes(), &item); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if item.Value != "hello" {
+		t.Fatalf("unexpected value: got %q, want %q", item.Value, "hello")
+	}
+
+	if db.createItemCalls != 1 {
+		t.Fatalf("expected 1 create call, got %d", db.createItemCalls)
+	}
+}
+
+func TestListItemsHandlerWithItems(t *testing.T) {
+	db := &stubDatabaseService{
+		createItemFunc: func(_ context.Context, _ string) (database.Item, error) {
+			return database.Item{ID: 1, Value: "item", CreatedAt: "2026-01-01T00:00:00Z"}, nil
+		},
+	}
+	// Override ListItems to return data
+	customDB := &customListItemsDB{
+		stubDatabaseService: db,
+		items: []database.Item{
+			{ID: 1, Value: "first", CreatedAt: "2026-01-01T00:00:00Z"},
+			{ID: 2, Value: "second", CreatedAt: "2026-01-02T00:00:00Z"},
+		},
+	}
+	s := &Server{db: customDB}
+	handler := s.RegisterRoutes()
+
+	rr := makeRequest(t, handler, http.MethodGet, "/api/items", nil)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, rr.Code)
+	}
+
+	var body struct {
+		Items []database.Item `json:"items"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(body.Items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(body.Items))
+	}
+}
+
+type customListItemsDB struct {
+	*stubDatabaseService
+	items []database.Item
+}
+
+func (c *customListItemsDB) ListItems(_ context.Context) ([]database.Item, error) {
+	return c.items, nil
+}
+
+func TestDeleteItemHandlerSuccess(t *testing.T) {
+	db := &stubDatabaseService{}
+	s := &Server{db: db}
+	handler := s.RegisterRoutes()
+
+	rr := makeRequest(t, handler, http.MethodDelete, "/api/items/1", nil)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d", http.StatusNoContent, rr.Code)
+	}
+
+	if db.deleteItemCalls != 1 {
+		t.Fatalf("expected 1 delete call, got %d", db.deleteItemCalls)
 	}
 }

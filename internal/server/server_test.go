@@ -1,6 +1,16 @@
 package server
 
-import "testing"
+import (
+	"os"
+	"testing"
+
+	"github.com/gin-gonic/gin"
+)
+
+func TestMain(m *testing.M) {
+	gin.SetMode(gin.TestMode)
+	os.Exit(m.Run())
+}
 
 func TestResolvePort(t *testing.T) {
 	tests := []struct {

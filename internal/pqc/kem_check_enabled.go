@@ -9,14 +9,6 @@ import (
 	"github.com/open-quantum-safe/liboqs-go/oqs"
 )
 
-type KEMCheckResult struct {
-	LiboqsVersion         string   `json:"liboqsVersion"`
-	EnabledKEMs           []string `json:"enabledKEMs"`
-	KEMName               string   `json:"kemName"`
-	Details               string   `json:"details"`
-	SharedSecretsCoincide bool     `json:"sharedSecretsCoincide"`
-}
-
 func RunKEMCheck(kemName string) (KEMCheckResult, error) {
 	result := KEMCheckResult{
 		LiboqsVersion: oqs.LiboqsVersion(),

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -10,18 +11,17 @@ import (
 
 	_ "github.com/joho/godotenv/autoload"
 
-	"template/internal/database"
+	"github.com/Matthieusz/AVMS/internal/database"
 )
 
 type Server struct {
-	port int
-
-	db database.Service
+	db         database.Service
+	httpServer *http.Server
 }
 
 const defaultPort = 8080
 
-func NewServer() (*http.Server, error) {
+func NewServer() (*Server, error) {
 	port, err := portFromEnv()
 	if err != nil {
 		return nil, err
@@ -32,26 +32,37 @@ func NewServer() (*http.Server, error) {
 		return nil, fmt.Errorf("initialize database: %w", err)
 	}
 
-	newServer := &Server{
-		port: port,
+	s := &Server{db: db}
 
-		db: db,
-	}
-
-	// Declare Server config
-	server := &http.Server{
-		Addr:         fmt.Sprintf(":%d", newServer.port),
-		Handler:      newServer.RegisterRoutes(),
+	s.httpServer = &http.Server{
+		Addr:         fmt.Sprintf(":%d", port),
+		Handler:      s.RegisterRoutes(),
 		IdleTimeout:  time.Minute,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 30 * time.Second,
 	}
 
-	return server, nil
+	return s, nil
+}
+
+func (s *Server) Start() error {
+	return s.httpServer.ListenAndServe()
+}
+
+func (s *Server) Shutdown(ctx context.Context) error {
+	return s.httpServer.Shutdown(ctx)
+}
+
+func (s *Server) Close() error {
+	return s.db.Close()
 }
 
 func portFromEnv() (int, error) {
-	return resolvePort(os.Getenv("PORT"))
+	value := os.Getenv("AVMS_PORT")
+	if value == "" {
+		value = os.Getenv("PORT")
+	}
+	return resolvePort(value)
 }
 
 func resolvePort(rawValue string) (int, error) {

@@ -1,4 +1,4 @@
-module template
+module github.com/Matthieusz/AVMS
 
 go 1.25.0
 

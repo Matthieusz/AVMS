@@ -2,61 +2,73 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"template/internal/server"
+	"github.com/Matthieusz/AVMS/internal/server"
 )
 
-func gracefulShutdown(apiServer *http.Server, done chan bool) {
-	// Create context that listens for the interrupt signal from the OS.
+func initLogger() {
+	format := os.Getenv("AVMS_LOG_FORMAT")
+	if format == "" {
+		format = os.Getenv("GIN_MODE")
+	}
+
+	var handler slog.Handler
+	if format == "json" || format == "release" {
+		handler = slog.NewJSONHandler(os.Stdout, nil)
+	} else {
+		handler = slog.NewTextHandler(os.Stdout, nil)
+	}
+
+	slog.SetDefault(slog.New(handler))
+}
+
+func gracefulShutdown(srv *server.Server, done chan bool) {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// Listen for the interrupt signal.
 	<-ctx.Done()
 
-	log.Println("shutting down gracefully, press Ctrl+C again to force")
-	stop() // Allow Ctrl+C to force shutdown
+	slog.Info("shutting down gracefully, press Ctrl+C again to force")
 
-	// The context is used to inform the server it has 5 seconds to finish
-	// the request it is currently handling
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := apiServer.Shutdown(ctx); err != nil {
-		log.Printf("Server forced to shutdown with error: %v", err)
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		slog.Error("server forced to shutdown", "error", err)
 	}
 
-	log.Println("Server exiting")
+	if err := srv.Close(); err != nil {
+		slog.Error("failed to close database", "error", err)
+	}
 
-	// Notify the main goroutine that the shutdown is complete
+	slog.Info("server exiting")
 	done <- true
 }
 
 func main() {
-	apiServer, err := server.NewServer()
+	initLogger()
+
+	srv, err := server.NewServer()
 	if err != nil {
-		log.Printf("failed to initialize server: %v", err)
+		slog.Error("failed to initialize server", "error", err)
 		os.Exit(1)
 	}
 
-	// Create a done channel to signal when the shutdown is complete
 	done := make(chan bool, 1)
+	go gracefulShutdown(srv, done)
 
-	// Run graceful shutdown in a separate goroutine
-	go gracefulShutdown(apiServer, done)
-
-	err = apiServer.ListenAndServe()
+	err = srv.Start()
 	if err != nil && err != http.ErrServerClosed {
-		log.Printf("http server error: %v", err)
+		slog.Error("http server error", "error", err)
 		os.Exit(1)
 	}
 
-	// Wait for the graceful shutdown to complete
 	<-done
-	log.Println("Graceful shutdown complete.")
+	slog.Info("graceful shutdown complete")
 }
