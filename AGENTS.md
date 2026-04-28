@@ -3,7 +3,7 @@
 ## Layout
 - This repo has two runtimes: Go API at repo root and React app in `frontend/`.
 - Backend entrypoint: `cmd/api/main.go`; route wiring: `internal/server/server.go` and `internal/server/routes.go`; DB layer: `internal/database/database.go`.
-- Frontend entrypoint: `frontend/src/main.tsx`; main screen/data flow: `frontend/src/App.tsx`.
+    - Frontend entrypoint: `frontend/src/main.tsx`; main screen/data flow: `frontend/src/App.tsx`.
 - Go module path is `template` (`go.mod`), so internal imports use `template/internal/...`.
 
 ## Trust executable config over README
