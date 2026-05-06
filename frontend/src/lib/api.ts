@@ -1,13 +1,13 @@
 import { z } from "zod";
 
-export const ItemSchema = z.object({
+export const EntrySchema = z.object({
   id: z.number().int().positive(),
   value: z.string(),
   createdAt: z.string().datetime({ offset: true }),
 });
 
-export const ListItemsResponseSchema = z.object({
-  items: z.array(ItemSchema),
+export const ListEntriesResponseSchema = z.object({
+  entries: z.array(EntrySchema),
 });
 
 export const HealthResponseSchema = z.object({
@@ -17,8 +17,8 @@ export const HealthResponseSchema = z.object({
   service: z.string(),
 });
 
-export type Item = z.infer<typeof ItemSchema>;
-export type ListItemsResponse = z.infer<typeof ListItemsResponseSchema>;
+export type Entry = z.infer<typeof EntrySchema>;
+export type ListEntriesResponse = z.infer<typeof ListEntriesResponseSchema>;
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;
 
 class ApiError extends Error {
@@ -52,12 +52,12 @@ export async function getHealth(): Promise<HealthResponse> {
   return apiFetch("/api/health", HealthResponseSchema);
 }
 
-export async function getItems(): Promise<ListItemsResponse> {
-  return apiFetch("/api/items", ListItemsResponseSchema);
+export async function getEntries(): Promise<ListEntriesResponse> {
+  return apiFetch("/api/entries", ListEntriesResponseSchema);
 }
 
-export async function createItem(value: string): Promise<Item> {
-  return apiFetch("/api/items", ItemSchema, {
+export async function createEntry(value: string): Promise<Entry> {
+  return apiFetch("/api/entries", EntrySchema, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -66,8 +66,8 @@ export async function createItem(value: string): Promise<Item> {
   });
 }
 
-export async function deleteItem(id: number): Promise<void> {
-  const response = await fetch(`/api/items/${id}`, { method: "DELETE" });
+export async function deleteEntry(id: number): Promise<void> {
+  const response = await fetch(`/api/entries/${id}`, { method: "DELETE" });
   if (!response.ok) {
     const text = await response.text().catch(() => undefined);
     throw new ApiError(`HTTP ${response.status}${text ? `: ${text}` : ""}`, response.status, text);

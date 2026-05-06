@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { HealthResponseSchema, ItemSchema, ListItemsResponseSchema } from "@/lib/api";
+import { HealthResponseSchema, EntrySchema, ListEntriesResponseSchema } from "@/lib/api";
 
 describe("HealthResponseSchema", () => {
   it("parses a valid health response", () => {
@@ -17,35 +17,35 @@ describe("HealthResponseSchema", () => {
   });
 });
 
-describe("ItemSchema", () => {
-  it("parses a valid item", () => {
+describe("EntrySchema", () => {
+  it("parses a valid entry", () => {
     const data = {
       id: 1,
       value: "hello",
       createdAt: "2026-04-28T12:00:00Z",
     };
-    expect(ItemSchema.parse(data)).toEqual(data);
+    expect(EntrySchema.parse(data)).toEqual(data);
   });
 
   it("rejects non-positive id", () => {
     expect(() =>
-      ItemSchema.parse({ id: 0, value: "x", createdAt: "2026-04-28T12:00:00Z" }),
+      EntrySchema.parse({ id: 0, value: "x", createdAt: "2026-04-28T12:00:00Z" }),
     ).toThrow();
   });
 });
 
-describe("ListItemsResponseSchema", () => {
+describe("ListEntriesResponseSchema", () => {
   it("parses an empty list", () => {
-    expect(ListItemsResponseSchema.parse({ items: [] })).toEqual({ items: [] });
+    expect(ListEntriesResponseSchema.parse({ entries: [] })).toEqual({ entries: [] });
   });
 
   it("parses a populated list", () => {
     const data = {
-      items: [
+      entries: [
         { id: 1, value: "a", createdAt: "2026-04-28T12:00:00Z" },
         { id: 2, value: "b", createdAt: "2026-04-28T12:01:00Z" },
       ],
     };
-    expect(ListItemsResponseSchema.parse(data)).toEqual(data);
+    expect(ListEntriesResponseSchema.parse(data)).toEqual(data);
   });
 });

@@ -3,11 +3,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { createItem, deleteItem, getHealth, getItems } from "@/lib/api";
+import { createEntry, deleteEntry, getHealth, getEntries } from "@/lib/api";
 
 function App() {
   const queryClient = useQueryClient();
-  const [deletingItemId, setDeletingItemId] = useState<number | null>(null);
+  const [deletingEntryId, setDeletingEntryId] = useState<number | null>(null);
 
   const healthQuery = useQuery({
     queryKey: ["health"],
@@ -15,15 +15,15 @@ function App() {
     refetchInterval: 30_000,
   });
 
-  const itemsQuery = useQuery({
-    queryKey: ["items"],
-    queryFn: getItems,
+  const entriesQuery = useQuery({
+    queryKey: ["entries"],
+    queryFn: getEntries,
   });
 
-  const createItemMutation = useMutation({
-    mutationFn: createItem,
+  const createEntryMutation = useMutation({
+    mutationFn: createEntry,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["items"] });
+      void queryClient.invalidateQueries({ queryKey: ["entries"] });
       toast.success("Entry created successfully");
     },
     onError: (error) => {
@@ -31,15 +31,15 @@ function App() {
     },
   });
 
-  const deleteItemMutation = useMutation({
-    mutationFn: deleteItem,
+  const deleteEntryMutation = useMutation({
+    mutationFn: deleteEntry,
     onSuccess: () => {
-      setDeletingItemId(null);
-      void queryClient.invalidateQueries({ queryKey: ["items"] });
+      setDeletingEntryId(null);
+      void queryClient.invalidateQueries({ queryKey: ["entries"] });
       toast.success("Entry removed");
     },
     onError: (error) => {
-      setDeletingItemId(null);
+      setDeletingEntryId(null);
       toast.error(error.message);
     },
   });
@@ -49,12 +49,12 @@ function App() {
       value: "",
     },
     onSubmit: async ({ value }) => {
-      await createItemMutation.mutateAsync(value.value.trim());
+      await createEntryMutation.mutateAsync(value.value.trim());
       form.reset();
     },
   });
 
-  const hasItems = (itemsQuery.data?.items.length ?? 0) > 0;
+  const hasEntries = (entriesQuery.data?.entries.length ?? 0) > 0;
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_hsl(var(--primary)/0.16),_transparent_42%),linear-gradient(180deg,_hsl(var(--background)),_hsl(var(--muted)/0.5))] px-4 py-10 sm:px-6">
@@ -170,7 +170,7 @@ function App() {
                     value={field.state.value}
                     onBlur={field.handleBlur}
                     onChange={(event) => field.handleChange(event.target.value)}
-                    disabled={createItemMutation.isPending}
+                    disabled={createEntryMutation.isPending}
                     aria-invalid={Boolean(field.state.meta.errors[0])}
                     className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                   />
@@ -183,38 +183,38 @@ function App() {
               )}
             </form.Field>
 
-            <Button type="submit" className="h-10 sm:mt-7" disabled={createItemMutation.isPending}>
-              {createItemMutation.isPending ? "Saving..." : "Add Entry"}
+            <Button type="submit" className="h-10 sm:mt-7" disabled={createEntryMutation.isPending}>
+              {createEntryMutation.isPending ? "Saving..." : "Add Entry"}
             </Button>
           </form>
 
-          {createItemMutation.isError ? (
+          {createEntryMutation.isError ? (
             <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {createItemMutation.error.message}
+              {createEntryMutation.error.message}
             </p>
           ) : null}
 
-          {itemsQuery.isLoading ? (
+          {entriesQuery.isLoading ? (
             <p className="mt-4 text-sm text-muted-foreground">Loading entries...</p>
           ) : null}
 
-          {itemsQuery.isError ? (
+          {entriesQuery.isError ? (
             <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {itemsQuery.error.message}
+              {entriesQuery.error.message}
             </p>
           ) : null}
 
-          {hasItems ? (
+          {hasEntries ? (
             <ul className="mt-4 space-y-2">
-              {itemsQuery.data?.items.map((item) => (
+              {entriesQuery.data?.entries.map((entry) => (
                 <li
-                  key={item.id}
+                  key={entry.id}
                   className="flex flex-col gap-2 rounded-xl border border-border/80 bg-background/70 p-3 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div>
-                    <p className="text-sm font-medium text-foreground">{item.value}</p>
-                    <time className="text-xs text-muted-foreground" dateTime={item.createdAt}>
-                      {new Date(item.createdAt).toLocaleString()}
+                    <p className="text-sm font-medium text-foreground">{entry.value}</p>
+                    <time className="text-xs text-muted-foreground" dateTime={entry.createdAt}>
+                      {new Date(entry.createdAt).toLocaleString()}
                     </time>
                   </div>
 
@@ -223,13 +223,13 @@ function App() {
                     variant="destructive"
                     size="sm"
                     onClick={() => {
-                      setDeletingItemId(item.id);
-                      void deleteItemMutation.mutateAsync(item.id);
+                      setDeletingEntryId(entry.id);
+                      void deleteEntryMutation.mutateAsync(entry.id);
                     }}
-                    disabled={deleteItemMutation.isPending && deletingItemId === item.id}
-                    aria-label={`Remove entry ${item.value}`}
+                    disabled={deleteEntryMutation.isPending && deletingEntryId === entry.id}
+                    aria-label={`Remove entry ${entry.value}`}
                   >
-                    {deleteItemMutation.isPending && deletingItemId === item.id
+                    {deleteEntryMutation.isPending && deletingEntryId === entry.id
                       ? "Removing..."
                       : "Remove"}
                   </Button>
@@ -238,15 +238,15 @@ function App() {
             </ul>
           ) : null}
 
-          {itemsQuery.data && itemsQuery.data.items.length === 0 ? (
+          {entriesQuery.data && entriesQuery.data.entries.length === 0 ? (
             <p className="mt-4 rounded-xl border border-dashed border-border/80 bg-muted/30 px-4 py-6 text-center text-sm text-muted-foreground">
               No entries yet. Add your first one.
             </p>
           ) : null}
 
-          {deleteItemMutation.isError ? (
+          {deleteEntryMutation.isError ? (
             <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {deleteItemMutation.error.message}
+              {deleteEntryMutation.error.message}
             </p>
           ) : null}
         </section>
