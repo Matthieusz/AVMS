@@ -89,7 +89,6 @@ func (s *service) Health() map[string]string {
 
 	stats := make(map[string]string)
 
-	// Ping the database
 	err := s.db.PingContext(ctx)
 	if err != nil {
 		stats["status"] = "down"
@@ -100,13 +99,11 @@ func (s *service) Health() map[string]string {
 		return stats
 	}
 
-	// Database is up, add more statistics
 	stats["status"] = "up"
 	stats["message"] = "It's healthy"
 	stats["service"] = "api"
 	stats["timestamp"] = time.Now().UTC().Format(time.RFC3339)
 
-	// Get database stats (like open connections, in use, idle, etc.)
 	dbStats := s.db.Stats()
 	stats["open_connections"] = strconv.Itoa(dbStats.OpenConnections)
 	stats["in_use"] = strconv.Itoa(dbStats.InUse)
@@ -116,8 +113,7 @@ func (s *service) Health() map[string]string {
 	stats["max_idle_closed"] = strconv.FormatInt(dbStats.MaxIdleClosed, 10)
 	stats["max_lifetime_closed"] = strconv.FormatInt(dbStats.MaxLifetimeClosed, 10)
 
-	// Evaluate stats to provide a health message
-	if dbStats.OpenConnections > 40 { // Assuming 50 is the max for this example
+	if dbStats.OpenConnections > 40 {
 		stats["message"] = "The database is experiencing heavy load."
 	}
 
@@ -194,10 +190,6 @@ func (s *service) DeleteEntry(ctx context.Context, id int64) (bool, error) {
 	return rowsAffected > 0, nil
 }
 
-// Close closes the database connection.
-// It logs a message indicating the disconnection from the specific database.
-// If the connection is successfully closed, it returns nil.
-// If an error occurs while closing the connection, it returns the error.
 func (s *service) Close() error {
 	slog.Info("disconnected from database")
 	return s.db.Close()

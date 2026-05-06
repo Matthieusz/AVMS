@@ -106,11 +106,9 @@ func TestHelloWorldHandler(t *testing.T) {
 	r.GET("/api/", s.HelloWorldHandler)
 	rr := makeRequest(t, r, http.MethodGet, "/api/", nil)
 
-	// Check the status code
 	if status := rr.Code; status != http.StatusOK {
 		t.Errorf("Handler returned wrong status code: got %v want %v", status, http.StatusOK)
 	}
-	// Check the response body
 	expected := "{\"message\":\"Hello World\"}"
 	if rr.Body.String() != expected {
 		t.Errorf("Handler returned unexpected body: got %v want %v", rr.Body.String(), expected)

@@ -91,7 +91,6 @@ func TestListEntries(t *testing.T) {
 	srv := newTestService(t)
 	ctx := context.Background()
 
-	// Empty list
 	entries, err := srv.ListEntries(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -100,7 +99,6 @@ func TestListEntries(t *testing.T) {
 		t.Fatalf("expected 0 entries, got %d", len(entries))
 	}
 
-	// Create entries
 	if _, err := srv.CreateEntry(ctx, "first"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -129,7 +127,6 @@ func TestDeleteEntry(t *testing.T) {
 	srv := newTestService(t)
 	ctx := context.Background()
 
-	// Delete non-existent
 	deleted, err := srv.DeleteEntry(ctx, 999)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -138,7 +135,6 @@ func TestDeleteEntry(t *testing.T) {
 		t.Fatal("expected deleted to be false")
 	}
 
-	// Create and delete
 	entry, err := srv.CreateEntry(ctx, "to-delete")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -152,7 +148,6 @@ func TestDeleteEntry(t *testing.T) {
 		t.Fatal("expected deleted to be true")
 	}
 
-	// Verify gone
 	entries, err := srv.ListEntries(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
