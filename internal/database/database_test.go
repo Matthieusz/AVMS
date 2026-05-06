@@ -2,10 +2,9 @@ package database
 
 import (
 	"context"
-	"os"
+	"database/sql"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/Matthieusz/AVMS/internal/config"
 )
@@ -13,21 +12,25 @@ import (
 func newTestService(t *testing.T) Service {
 	t.Helper()
 
-	resetForTest()
-
 	dir := t.TempDir()
 	dsn := filepath.Join(dir, "test.db")
 
-	srv, err := New(config.DBConfig{URL: dsn})
+	db, err := Open(config.DBConfig{URL: dsn})
 	if err != nil {
-		t.Fatalf("failed to create test database: %v", err)
+		t.Fatalf("failed to open database: %v", err)
 	}
+
+	migrator := NewMigrator()
+	if err := migrator.Run(db); err != nil {
+		t.Fatalf("failed to run migrations: %v", err)
+	}
+
+	srv := New(db)
 
 	t.Cleanup(func() {
 		if err := srv.Close(); err != nil {
 			t.Logf("failed to close test database: %v", err)
 		}
-		resetForTest()
 	})
 
 	return srv
@@ -160,15 +163,20 @@ func TestDeleteEntry(t *testing.T) {
 }
 
 func TestClose(t *testing.T) {
-	resetForTest()
-
 	dir := t.TempDir()
 	dsn := filepath.Join(dir, "test.db")
 
-	srv, err := New(config.DBConfig{URL: dsn})
+	db, err := Open(config.DBConfig{URL: dsn})
 	if err != nil {
-		t.Fatalf("failed to create database: %v", err)
+		t.Fatalf("failed to open database: %v", err)
 	}
+
+	migrator := NewMigrator()
+	if err := migrator.Run(db); err != nil {
+		t.Fatalf("failed to run migrations: %v", err)
+	}
+
+	srv := New(db)
 
 	if err := srv.Close(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -181,46 +189,46 @@ func TestClose(t *testing.T) {
 	}
 }
 
-func TestLegacyMigrationSeeding(t *testing.T) {
-	resetForTest()
-
+func TestMigratorSeedsLegacyMigration(t *testing.T) {
 	dir := t.TempDir()
 	dsn := filepath.Join(dir, "legacy.db")
 
-	// Manually create the entries table (simulating an old database)
-	importRaw := os.Getenv("CGO_ENABLED")
-	os.Setenv("CGO_ENABLED", "1")
-	defer func() {
-		if importRaw == "" {
-			os.Unsetenv("CGO_ENABLED")
-		} else {
-			os.Setenv("CGO_ENABLED", importRaw)
-		}
-	}()
-
-	// Use raw sqlite3 to create old schema
-	// Since we can't easily import sqlite3 here without cgo, we'll test this
-	// indirectly by verifying migrations work on a fresh DB.
-	srv, err := New(config.DBConfig{URL: dsn})
+	// Simulate an old database: create the entries table manually
+	rawDB, err := sql.Open("sqlite3", dsn)
 	if err != nil {
-		t.Fatalf("failed to create database: %v", err)
+		t.Fatalf("failed to open raw db: %v", err)
 	}
 
-	// Verify _migrations table was created and seeded
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
+	if _, err := rawDB.Exec(`
+		CREATE TABLE entries (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			value TEXT NOT NULL,
+			created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+		);
+	`); err != nil {
+		t.Fatalf("failed to create entries table: %v", err)
+	}
 
-	// The migration should have been applied
-	entries, err := srv.ListEntries(ctx)
+	if err := rawDB.Close(); err != nil {
+		t.Fatalf("failed to close raw db: %v", err)
+	}
+
+	// Now open via our package and run migrations
+	db, err := Open(config.DBConfig{URL: dsn})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("failed to open database: %v", err)
 	}
-	if len(entries) != 0 {
-		t.Fatalf("expected empty list, got %d entries", len(entries))
+	defer db.Close()
+
+	migrator := NewMigrator()
+	if err := migrator.Run(db); err != nil {
+		t.Fatalf("failed to run migrations: %v", err)
 	}
 
-	if err := srv.Close(); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	// Verify the legacy migration was seeded
+	var exists int
+	err = db.QueryRow("SELECT 1 FROM _migrations WHERE version = ?", "001_create_entries.sql").Scan(&exists)
+	if err != nil {
+		t.Fatalf("expected legacy migration to be seeded: %v", err)
 	}
-	resetForTest()
 }

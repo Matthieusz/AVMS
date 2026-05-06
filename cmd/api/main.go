@@ -63,13 +63,20 @@ func main() {
 
 	initLogger(cfg)
 
-	db, err := database.New(cfg.DB)
+	db, err := database.Open(cfg.DB)
 	if err != nil {
-		slog.Error("failed to initialize database", "error", err)
+		slog.Error("failed to open database", "error", err)
 		os.Exit(1)
 	}
 
-	entries := entry.NewService(db)
+	migrator := database.NewMigrator()
+	if err := migrator.Run(db); err != nil {
+		slog.Error("failed to run migrations", "error", err)
+		os.Exit(1)
+	}
+
+	repo := database.New(db)
+	entries := entry.NewService(repo)
 
 	srv, err := server.New(cfg.Server, entries)
 	if err != nil {

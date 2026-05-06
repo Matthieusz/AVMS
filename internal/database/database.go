@@ -3,23 +3,15 @@ package database
 import (
 	"context"
 	"database/sql"
-	"embed"
 	"fmt"
-	"io/fs"
 	"log/slog"
-	"sort"
 	"strconv"
-	"strings"
-	"sync"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/Matthieusz/AVMS/internal/config"
 )
-
-//go:embed migrations/*.sql
-var migrationFS embed.FS
 
 // Service represents a service that interacts with a database.
 type Service interface {
@@ -41,6 +33,7 @@ type Service interface {
 	Close() error
 }
 
+// Entry is a stored record.
 type Entry struct {
 	ID        int64  `json:"id"`
 	Value     string `json:"value"`
@@ -48,27 +41,13 @@ type Entry struct {
 }
 
 type service struct {
-	db  *sql.DB
-	dsn string
+	db *sql.DB
 }
 
-var (
-	dbInstance *service
-	dbMu       sync.Mutex
-)
-
-// New opens the SQLite database described by cfg, applies migrations, and
-// returns a Service. It uses a package-level singleton so repeated calls
-// return the same instance.
-func New(cfg config.DBConfig) (Service, error) {
-	dbMu.Lock()
-	defer dbMu.Unlock()
-
-	// Reuse Connection
-	if dbInstance != nil {
-		return dbInstance, nil
-	}
-
+// Open opens the SQLite database described by cfg, applies connection pragmas,
+// and returns the raw *sql.DB. The caller owns the lifecycle: run migrations,
+// create a Service, and close the connection when done.
+func Open(cfg config.DBConfig) (*sql.DB, error) {
 	db, err := sql.Open("sqlite3", cfg.URL)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite database %q: %w", cfg.URL, err)
@@ -79,31 +58,6 @@ func New(cfg config.DBConfig) (Service, error) {
 	db.SetMaxIdleConns(2)
 	db.SetConnMaxLifetime(0)
 
-	instance := &service{
-		db:  db,
-		dsn: cfg.URL,
-	}
-
-	if err := instance.configureSQLite(); err != nil {
-		if closeErr := db.Close(); closeErr != nil {
-			slog.Error("failed to close database after config error", "error", closeErr)
-		}
-		return nil, err
-	}
-
-	if err := instance.runMigrations(); err != nil {
-		if closeErr := db.Close(); closeErr != nil {
-			slog.Error("failed to close database after migration error", "error", closeErr)
-		}
-		return nil, err
-	}
-
-	dbInstance = instance
-
-	return dbInstance, nil
-}
-
-func (s *service) configureSQLite() error {
 	pragmas := []string{
 		"PRAGMA journal_mode=WAL",
 		"PRAGMA busy_timeout=5000",
@@ -111,101 +65,20 @@ func (s *service) configureSQLite() error {
 	}
 
 	for _, pragma := range pragmas {
-		if _, err := s.db.Exec(pragma); err != nil {
-			return fmt.Errorf("execute %q: %w", pragma, err)
+		if _, err := db.Exec(pragma); err != nil {
+			if closeErr := db.Close(); closeErr != nil {
+				slog.Error("failed to close database after pragma error", "error", closeErr)
+			}
+			return nil, fmt.Errorf("execute %q: %w", pragma, err)
 		}
 	}
 
-	return nil
+	return db, nil
 }
 
-func (s *service) runMigrations() error {
-	if _, err := s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS _migrations (
-			version TEXT PRIMARY KEY,
-			applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-		);
-	`); err != nil {
-		return fmt.Errorf("create migrations table: %w", err)
-	}
-
-	// Backwards compatibility: if entries table exists but no migration recorded,
-	// record the first migration as already applied.
-	if err := s.seedLegacyMigration(); err != nil {
-		return fmt.Errorf("seed legacy migration: %w", err)
-	}
-
-	entries, err := fs.ReadDir(migrationFS, "migrations")
-	if err != nil {
-		return fmt.Errorf("read migration directory: %w", err)
-	}
-
-	files := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".sql") {
-			files = append(files, entry.Name())
-		}
-	}
-
-	sort.Strings(files)
-
-	for _, version := range files {
-		var exists int
-		err := s.db.QueryRow("SELECT 1 FROM _migrations WHERE version = ?", version).Scan(&exists)
-		if err == nil {
-			// Already applied
-			continue
-		}
-		if err != sql.ErrNoRows {
-			return fmt.Errorf("check migration %q: %w", version, err)
-		}
-
-		sqlBytes, err := fs.ReadFile(migrationFS, "migrations/"+version)
-		if err != nil {
-			return fmt.Errorf("read migration %q: %w", version, err)
-		}
-
-		if _, err := s.db.Exec(string(sqlBytes)); err != nil {
-			return fmt.Errorf("apply migration %q: %w", version, err)
-		}
-
-		if _, err := s.db.Exec("INSERT INTO _migrations(version) VALUES (?)", version); err != nil {
-			return fmt.Errorf("record migration %q: %w", version, err)
-		}
-
-		slog.Info("applied migration", "version", version)
-	}
-
-	return nil
-}
-
-func (s *service) seedLegacyMigration() error {
-	var entriesExists int
-	err := s.db.QueryRow("SELECT 1 FROM sqlite_master WHERE type='table' AND name='entries'").Scan(&entriesExists)
-	if err != nil && err != sql.ErrNoRows {
-		return fmt.Errorf("check entries table existence: %w", err)
-	}
-
-	if err == sql.ErrNoRows {
-		// entries table does not exist yet; normal migration flow will create it
-		return nil
-	}
-
-	var migrationExists int
-	err = s.db.QueryRow("SELECT 1 FROM _migrations WHERE version = ?", "001_create_entries.sql").Scan(&migrationExists)
-	if err != nil && err != sql.ErrNoRows {
-		return fmt.Errorf("check migration record: %w", err)
-	}
-
-	if err == sql.ErrNoRows {
-		// entries table exists but migration not recorded; seed it
-		if _, err := s.db.Exec("INSERT INTO _migrations(version) VALUES (?)", "001_create_entries.sql"); err != nil {
-			return fmt.Errorf("seed legacy migration: %w", err)
-		}
-		slog.Info("seeded legacy migration", "version", "001_create_entries.sql")
-	}
-
-	return nil
+// New creates a Service backed by the given database connection.
+func New(db *sql.DB) Service {
+	return &service{db: db}
 }
 
 // Health checks the health of the database connection by pinging the database.
@@ -325,16 +198,7 @@ func (s *service) DeleteEntry(ctx context.Context, id int64) (bool, error) {
 // It logs a message indicating the disconnection from the specific database.
 // If the connection is successfully closed, it returns nil.
 // If an error occurs while closing the connection, it returns the error.
-func resetForTest() {
-	dbMu.Lock()
-	defer dbMu.Unlock()
-	if dbInstance != nil {
-		_ = dbInstance.Close()
-	}
-	dbInstance = nil
-}
-
 func (s *service) Close() error {
-	slog.Info("disconnected from database", "dsn", s.dsn)
+	slog.Info("disconnected from database")
 	return s.db.Close()
 }
