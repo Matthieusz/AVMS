@@ -27,21 +27,21 @@ type Service interface {
 	// The keys and values in the map are service-specific.
 	Health() map[string]string
 
-	// CreateItem inserts a new record in the database.
-	CreateItem(ctx context.Context, value string) (Item, error)
+	// CreateEntry inserts a new record in the database.
+	CreateEntry(ctx context.Context, value string) (Entry, error)
 
-	// ListItems returns all stored records.
-	ListItems(ctx context.Context) ([]Item, error)
+	// ListEntries returns all stored records.
+	ListEntries(ctx context.Context) ([]Entry, error)
 
-	// DeleteItem removes a record by ID.
-	DeleteItem(ctx context.Context, id int64) (bool, error)
+	// DeleteEntry removes a record by ID.
+	DeleteEntry(ctx context.Context, id int64) (bool, error)
 
 	// Close terminates the database connection.
 	// It returns an error if the connection cannot be closed.
 	Close() error
 }
 
-type Item struct {
+type Entry struct {
 	ID        int64  `json:"id"`
 	Value     string `json:"value"`
 	CreatedAt string `json:"createdAt"`
@@ -263,54 +263,54 @@ func (s *service) Health() map[string]string {
 	return stats
 }
 
-func (s *service) CreateItem(ctx context.Context, value string) (Item, error) {
+func (s *service) CreateEntry(ctx context.Context, value string) (Entry, error) {
 	result, err := s.db.ExecContext(ctx, "INSERT INTO entries(value) VALUES (?)", value)
 	if err != nil {
-		return Item{}, fmt.Errorf("failed to insert item: %w", err)
+		return Entry{}, fmt.Errorf("failed to insert entry: %w", err)
 	}
 
 	id, err := result.LastInsertId()
 	if err != nil {
-		return Item{}, fmt.Errorf("failed to get inserted item id: %w", err)
+		return Entry{}, fmt.Errorf("failed to get inserted entry id: %w", err)
 	}
 
-	var item Item
+	var entry Entry
 	err = s.db.QueryRowContext(ctx, "SELECT id, value, created_at FROM entries WHERE id = ?", id).
-		Scan(&item.ID, &item.Value, &item.CreatedAt)
+		Scan(&entry.ID, &entry.Value, &entry.CreatedAt)
 	if err != nil {
-		return Item{}, fmt.Errorf("failed to fetch inserted item: %w", err)
+		return Entry{}, fmt.Errorf("failed to fetch inserted entry: %w", err)
 	}
 
-	return item, nil
+	return entry, nil
 }
 
-func (s *service) ListItems(ctx context.Context) ([]Item, error) {
+func (s *service) ListEntries(ctx context.Context) ([]Entry, error) {
 	rows, err := s.db.QueryContext(ctx, "SELECT id, value, created_at FROM entries ORDER BY id DESC")
 	if err != nil {
-		return nil, fmt.Errorf("failed to list items: %w", err)
+		return nil, fmt.Errorf("failed to list entries: %w", err)
 	}
 	defer rows.Close()
 
-	items := make([]Item, 0)
+	entries := make([]Entry, 0)
 	for rows.Next() {
-		var item Item
-		if err := rows.Scan(&item.ID, &item.Value, &item.CreatedAt); err != nil {
-			return nil, fmt.Errorf("failed to scan item: %w", err)
+		var entry Entry
+		if err := rows.Scan(&entry.ID, &entry.Value, &entry.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan entry: %w", err)
 		}
-		items = append(items, item)
+		entries = append(entries, entry)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed while iterating items: %w", err)
+		return nil, fmt.Errorf("failed while iterating entries: %w", err)
 	}
 
-	return items, nil
+	return entries, nil
 }
 
-func (s *service) DeleteItem(ctx context.Context, id int64) (bool, error) {
+func (s *service) DeleteEntry(ctx context.Context, id int64) (bool, error) {
 	result, err := s.db.ExecContext(ctx, "DELETE FROM entries WHERE id = ?", id)
 	if err != nil {
-		return false, fmt.Errorf("failed to delete item: %w", err)
+		return false, fmt.Errorf("failed to delete entry: %w", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()

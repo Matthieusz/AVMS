@@ -47,87 +47,87 @@ func TestHealth(t *testing.T) {
 	}
 }
 
-func TestCreateItem(t *testing.T) {
+func TestCreateEntry(t *testing.T) {
 	srv := newTestService(t)
 	ctx := context.Background()
 
-	item, err := srv.CreateItem(ctx, "hello")
+	entry, err := srv.CreateEntry(ctx, "hello")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if item.ID == 0 {
+	if entry.ID == 0 {
 		t.Fatal("expected non-zero ID")
 	}
 
-	if item.Value != "hello" {
-		t.Fatalf("unexpected value: got %q, want %q", item.Value, "hello")
+	if entry.Value != "hello" {
+		t.Fatalf("unexpected value: got %q, want %q", entry.Value, "hello")
 	}
 
-	if item.CreatedAt == "" {
+	if entry.CreatedAt == "" {
 		t.Fatal("expected created_at to be set")
 	}
 }
 
-func TestCreateItemBlankValue(t *testing.T) {
+func TestCreateEntryBlankValue(t *testing.T) {
 	srv := newTestService(t)
 	ctx := context.Background()
 
 	// Database layer does not enforce blank value validation;
-	// that is handled at the API handler layer.
-	item, err := srv.CreateItem(ctx, "")
+	// that is handled at the application layer.
+	entry, err := srv.CreateEntry(ctx, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if item.Value != "" {
-		t.Fatalf("unexpected value: got %q, want empty string", item.Value)
+	if entry.Value != "" {
+		t.Fatalf("unexpected value: got %q, want empty string", entry.Value)
 	}
 }
 
-func TestListItems(t *testing.T) {
+func TestListEntries(t *testing.T) {
 	srv := newTestService(t)
 	ctx := context.Background()
 
 	// Empty list
-	items, err := srv.ListItems(ctx)
+	entries, err := srv.ListEntries(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(items) != 0 {
-		t.Fatalf("expected 0 items, got %d", len(items))
+	if len(entries) != 0 {
+		t.Fatalf("expected 0 entries, got %d", len(entries))
 	}
 
-	// Create items
-	if _, err := srv.CreateItem(ctx, "first"); err != nil {
+	// Create entries
+	if _, err := srv.CreateEntry(ctx, "first"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, err := srv.CreateItem(ctx, "second"); err != nil {
+	if _, err := srv.CreateEntry(ctx, "second"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	items, err = srv.ListItems(ctx)
+	entries, err = srv.ListEntries(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(items) != 2 {
-		t.Fatalf("expected 2 items, got %d", len(items))
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(entries))
 	}
 
 	// Verify descending order by ID
-	if items[0].Value != "second" {
-		t.Fatalf("expected first item to be 'second', got %q", items[0].Value)
+	if entries[0].Value != "second" {
+		t.Fatalf("expected first entry to be 'second', got %q", entries[0].Value)
 	}
-	if items[1].Value != "first" {
-		t.Fatalf("expected second item to be 'first', got %q", items[1].Value)
+	if entries[1].Value != "first" {
+		t.Fatalf("expected second entry to be 'first', got %q", entries[1].Value)
 	}
 }
 
-func TestDeleteItem(t *testing.T) {
+func TestDeleteEntry(t *testing.T) {
 	srv := newTestService(t)
 	ctx := context.Background()
 
 	// Delete non-existent
-	deleted, err := srv.DeleteItem(ctx, 999)
+	deleted, err := srv.DeleteEntry(ctx, 999)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -136,12 +136,12 @@ func TestDeleteItem(t *testing.T) {
 	}
 
 	// Create and delete
-	item, err := srv.CreateItem(ctx, "to-delete")
+	entry, err := srv.CreateEntry(ctx, "to-delete")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	deleted, err = srv.DeleteItem(ctx, item.ID)
+	deleted, err = srv.DeleteEntry(ctx, entry.ID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -150,12 +150,12 @@ func TestDeleteItem(t *testing.T) {
 	}
 
 	// Verify gone
-	items, err := srv.ListItems(ctx)
+	entries, err := srv.ListEntries(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(items) != 0 {
-		t.Fatalf("expected 0 items after delete, got %d", len(items))
+	if len(entries) != 0 {
+		t.Fatalf("expected 0 entries after delete, got %d", len(entries))
 	}
 }
 
@@ -211,12 +211,12 @@ func TestLegacyMigrationSeeding(t *testing.T) {
 	defer cancel()
 
 	// The migration should have been applied
-	items, err := srv.ListItems(ctx)
+	entries, err := srv.ListEntries(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(items) != 0 {
-		t.Fatalf("expected empty list, got %d items", len(items))
+	if len(entries) != 0 {
+		t.Fatalf("expected empty list, got %d entries", len(entries))
 	}
 
 	if err := srv.Close(); err != nil {
