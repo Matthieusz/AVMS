@@ -1,23 +1,22 @@
 package server
 
 import (
-	"context"
 	"errors"
 	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/Matthieusz/AVMS/internal/entry"
 	"github.com/Matthieusz/AVMS/internal/pqc"
 )
 
-const maxCreateItemBodySize = 1024 * 1024
+const maxCreateEntryBodySize = 1024 * 1024
 
-type createItemRequest struct {
+type createEntryRequest struct {
 	Value string `json:"value"`
 }
 
@@ -43,9 +42,9 @@ func (s *Server) RegisterRoutes() http.Handler {
 		api.GET("/health", s.healthHandler)
 		api.GET("/health/detail", s.healthDetailHandler)
 		api.GET("/pqc/kem-check", s.kemCheckHandler)
-		api.GET("/items", s.listItemsHandler)
-		api.POST("/items", s.createItemHandler)
-		api.DELETE("/items/:id", s.deleteItemHandler)
+		api.GET("/entries", s.listEntriesHandler)
+		api.POST("/entries", s.createEntryHandler)
+		api.DELETE("/entries/:id", s.deleteEntryHandler)
 	}
 
 	// Serve frontend static files when a dist directory is configured.
@@ -86,13 +85,13 @@ func (s *Server) healthHandler(c *gin.Context) {
 }
 
 func (s *Server) healthDetailHandler(c *gin.Context) {
-	c.JSON(http.StatusOK, s.db.Health())
+	c.JSON(http.StatusOK, s.entries.Health())
 }
 
-func (s *Server) createItemHandler(c *gin.Context) {
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxCreateItemBodySize)
+func (s *Server) createEntryHandler(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxCreateEntryBodySize)
 
-	var payload createItemRequest
+	var payload createEntryRequest
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
@@ -104,58 +103,49 @@ func (s *Server) createItemHandler(c *gin.Context) {
 		return
 	}
 
-	value := strings.TrimSpace(payload.Value)
-	if value == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "value is required"})
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
-	defer cancel()
-
-	item, err := s.db.CreateItem(ctx, value)
+	ent, err := s.entries.CreateEntry(c.Request.Context(), payload.Value)
 	if err != nil {
-		logServerError(c, "create item", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create item"})
+		var ve entry.ValidationError
+		if errors.As(err, &ve) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": ve.Message})
+			return
+		}
+
+		logServerError(c, "create entry", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create entry"})
 		return
 	}
 
-	c.JSON(http.StatusCreated, item)
+	c.JSON(http.StatusCreated, ent)
 }
 
-func (s *Server) listItemsHandler(c *gin.Context) {
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
-	defer cancel()
-
-	items, err := s.db.ListItems(ctx)
+func (s *Server) listEntriesHandler(c *gin.Context) {
+	entries, err := s.entries.ListEntries(c.Request.Context())
 	if err != nil {
-		logServerError(c, "list items", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list items"})
+		logServerError(c, "list entries", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list entries"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"items": items})
+	c.JSON(http.StatusOK, gin.H{"entries": entries})
 }
 
-func (s *Server) deleteItemHandler(c *gin.Context) {
+func (s *Server) deleteEntryHandler(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid item id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid entry id"})
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
-	defer cancel()
-
-	deleted, err := s.db.DeleteItem(ctx, id)
+	deleted, err := s.entries.DeleteEntry(c.Request.Context(), id)
 	if err != nil {
-		logServerError(c, "delete item", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete item"})
+		logServerError(c, "delete entry", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete entry"})
 		return
 	}
 
 	if !deleted {
-		c.JSON(http.StatusNotFound, gin.H{"error": "item not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "entry not found"})
 		return
 	}
 

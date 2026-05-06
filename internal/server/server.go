@@ -7,21 +7,21 @@ import (
 	"time"
 
 	"github.com/Matthieusz/AVMS/internal/config"
-	"github.com/Matthieusz/AVMS/internal/database"
+	"github.com/Matthieusz/AVMS/internal/entry"
 )
 
 // Server is the HTTP server module.
 type Server struct {
-	db         database.Service
+	entries    entry.Service
 	cfg        config.ServerConfig
 	httpServer *http.Server
 }
 
-// New creates a Server wired with the given configuration and database.
-func New(cfg config.ServerConfig, db database.Service) (*Server, error) {
+// New creates a Server wired with the given configuration and entry service.
+func New(cfg config.ServerConfig, entries entry.Service) (*Server, error) {
 	s := &Server{
-		db:  db,
-		cfg: cfg,
+		entries: entries,
+		cfg:     cfg,
 	}
 
 	s.httpServer = &http.Server{
@@ -44,5 +44,5 @@ func (s *Server) Shutdown(ctx context.Context) error {
 }
 
 func (s *Server) Close() error {
-	return s.db.Close()
+	return s.entries.Close()
 }

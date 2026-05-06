@@ -11,52 +11,60 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/Matthieusz/AVMS/internal/config"
-	"github.com/Matthieusz/AVMS/internal/database"
+	"github.com/Matthieusz/AVMS/internal/entry"
 )
 
-type stubDatabaseService struct {
-	createItemCalls int
-	deleteItemCalls int
+type stubEntryService struct {
+	createEntryCalls int
+	deleteEntryCalls int
 
-	createItemFunc func(ctx context.Context, value string) (database.Item, error)
-	deleteItemFunc func(ctx context.Context, id int64) (bool, error)
+	createEntryFunc func(ctx context.Context, value string) (entry.Entry, error)
+	listEntriesFunc func(ctx context.Context) ([]entry.Entry, error)
+	deleteEntryFunc func(ctx context.Context, id int64) (bool, error)
 }
 
-func (s *stubDatabaseService) Health() map[string]string {
+func (s *stubEntryService) Health() map[string]string {
 	return map[string]string{
 		"status": "up",
 	}
 }
 
-func (s *stubDatabaseService) CreateItem(ctx context.Context, value string) (database.Item, error) {
-	s.createItemCalls++
+func (s *stubEntryService) CreateEntry(ctx context.Context, value string) (entry.Entry, error) {
+	s.createEntryCalls++
 
-	if s.createItemFunc != nil {
-		return s.createItemFunc(ctx, value)
+	if s.createEntryFunc != nil {
+		return s.createEntryFunc(ctx, value)
 	}
 
-	return database.Item{
+	if strings.TrimSpace(value) == "" {
+		return entry.Entry{}, entry.ValidationError{Field: "value", Message: entry.ErrBlankValue.Error()}
+	}
+
+	return entry.Entry{
 		ID:        1,
 		Value:     value,
 		CreatedAt: "2026-01-01T00:00:00Z",
 	}, nil
 }
 
-func (s *stubDatabaseService) ListItems(_ context.Context) ([]database.Item, error) {
-	return []database.Item{}, nil
+func (s *stubEntryService) ListEntries(_ context.Context) ([]entry.Entry, error) {
+	if s.listEntriesFunc != nil {
+		return s.listEntriesFunc(context.Background())
+	}
+	return []entry.Entry{}, nil
 }
 
-func (s *stubDatabaseService) DeleteItem(ctx context.Context, id int64) (bool, error) {
-	s.deleteItemCalls++
+func (s *stubEntryService) DeleteEntry(ctx context.Context, id int64) (bool, error) {
+	s.deleteEntryCalls++
 
-	if s.deleteItemFunc != nil {
-		return s.deleteItemFunc(ctx, id)
+	if s.deleteEntryFunc != nil {
+		return s.deleteEntryFunc(ctx, id)
 	}
 
 	return true, nil
 }
 
-func (s *stubDatabaseService) Close() error {
+func (s *stubEntryService) Close() error {
 	return nil
 }
 
@@ -166,12 +174,12 @@ func TestKEMCheckHandler(t *testing.T) {
 	}
 }
 
-func TestCreateItemHandlerRejectsInvalidJSON(t *testing.T) {
-	db := &stubDatabaseService{}
-	s := &Server{db: db, cfg: config.Default().Server}
+func TestCreateEntryHandlerRejectsInvalidJSON(t *testing.T) {
+	srv := &stubEntryService{}
+	s := &Server{entries: srv, cfg: config.Default().Server}
 	handler := s.RegisterRoutes()
 
-	rr := makeRequest(t, handler, http.MethodPost, "/api/items", []byte(`{"value":}`))
+	rr := makeRequest(t, handler, http.MethodPost, "/api/entries", []byte(`{"value":}`))
 
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rr.Code)
@@ -181,17 +189,17 @@ func TestCreateItemHandlerRejectsInvalidJSON(t *testing.T) {
 		t.Fatalf("unexpected error message: got %q", errMessage)
 	}
 
-	if db.createItemCalls != 0 {
-		t.Fatalf("expected create item not to be called, got %d calls", db.createItemCalls)
+	if srv.createEntryCalls != 0 {
+		t.Fatalf("expected create entry not to be called, got %d calls", srv.createEntryCalls)
 	}
 }
 
-func TestCreateItemHandlerRejectsBlankValue(t *testing.T) {
-	db := &stubDatabaseService{}
-	s := &Server{db: db, cfg: config.Default().Server}
+func TestCreateEntryHandlerRejectsBlankValue(t *testing.T) {
+	srv := &stubEntryService{}
+	s := &Server{entries: srv, cfg: config.Default().Server}
 	handler := s.RegisterRoutes()
 
-	rr := makeRequest(t, handler, http.MethodPost, "/api/items", []byte(`{"value":"   "}`))
+	rr := makeRequest(t, handler, http.MethodPost, "/api/entries", []byte(`{"value":"   "}`))
 
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rr.Code)
@@ -201,19 +209,19 @@ func TestCreateItemHandlerRejectsBlankValue(t *testing.T) {
 		t.Fatalf("unexpected error message: got %q", errMessage)
 	}
 
-	if db.createItemCalls != 0 {
-		t.Fatalf("expected create item not to be called, got %d calls", db.createItemCalls)
+	if srv.createEntryCalls != 1 {
+		t.Fatalf("expected create entry to be called once, got %d calls", srv.createEntryCalls)
 	}
 }
 
-func TestCreateItemHandlerRejectsOversizedBody(t *testing.T) {
-	db := &stubDatabaseService{}
-	s := &Server{db: db, cfg: config.Default().Server}
+func TestCreateEntryHandlerRejectsOversizedBody(t *testing.T) {
+	srv := &stubEntryService{}
+	s := &Server{entries: srv, cfg: config.Default().Server}
 	handler := s.RegisterRoutes()
 
-	largeValue := strings.Repeat("a", maxCreateItemBodySize)
+	largeValue := strings.Repeat("a", maxCreateEntryBodySize)
 	body := []byte(`{"value":"` + largeValue + `"}`)
-	rr := makeRequest(t, handler, http.MethodPost, "/api/items", body)
+	rr := makeRequest(t, handler, http.MethodPost, "/api/entries", body)
 
 	if rr.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("expected status %d, got %d", http.StatusRequestEntityTooLarge, rr.Code)
@@ -223,25 +231,25 @@ func TestCreateItemHandlerRejectsOversizedBody(t *testing.T) {
 		t.Fatalf("unexpected error message: got %q", errMessage)
 	}
 
-	if db.createItemCalls != 0 {
-		t.Fatalf("expected create item not to be called, got %d calls", db.createItemCalls)
+	if srv.createEntryCalls != 0 {
+		t.Fatalf("expected create entry not to be called, got %d calls", srv.createEntryCalls)
 	}
 }
 
-func TestDeleteItemHandlerRejectsInvalidIDs(t *testing.T) {
+func TestDeleteEntryHandlerRejectsInvalidIDs(t *testing.T) {
 	tests := []struct {
 		name string
 		path string
 	}{
-		{name: "non-numeric id", path: "/api/items/not-a-number"},
-		{name: "zero id", path: "/api/items/0"},
-		{name: "negative id", path: "/api/items/-1"},
+		{name: "non-numeric id", path: "/api/entries/not-a-number"},
+		{name: "zero id", path: "/api/entries/0"},
+		{name: "negative id", path: "/api/entries/-1"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			db := &stubDatabaseService{}
-			s := &Server{db: db, cfg: config.Default().Server}
+			srv := &stubEntryService{}
+			s := &Server{entries: srv, cfg: config.Default().Server}
 			handler := s.RegisterRoutes()
 
 			rr := makeRequest(t, handler, http.MethodDelete, tt.path, nil)
@@ -250,20 +258,20 @@ func TestDeleteItemHandlerRejectsInvalidIDs(t *testing.T) {
 				t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rr.Code)
 			}
 
-			if errMessage := decodeErrorMessage(t, rr.Body); errMessage != "invalid item id" {
+			if errMessage := decodeErrorMessage(t, rr.Body); errMessage != "invalid entry id" {
 				t.Fatalf("unexpected error message: got %q", errMessage)
 			}
 
-			if db.deleteItemCalls != 0 {
-				t.Fatalf("expected delete item not to be called, got %d calls", db.deleteItemCalls)
+			if srv.deleteEntryCalls != 0 {
+				t.Fatalf("expected delete entry not to be called, got %d calls", srv.deleteEntryCalls)
 			}
 		})
 	}
 }
 
 func TestHealthHandler(t *testing.T) {
-	db := &stubDatabaseService{}
-	s := &Server{db: db, cfg: config.Default().Server}
+	srv := &stubEntryService{}
+	s := &Server{entries: srv, cfg: config.Default().Server}
 	handler := s.RegisterRoutes()
 
 	rr := makeRequest(t, handler, http.MethodGet, "/api/health", nil)
@@ -282,87 +290,73 @@ func TestHealthHandler(t *testing.T) {
 	}
 }
 
-func TestCreateItemHandlerSuccess(t *testing.T) {
-	db := &stubDatabaseService{}
-	s := &Server{db: db, cfg: config.Default().Server}
+func TestCreateEntryHandlerSuccess(t *testing.T) {
+	srv := &stubEntryService{}
+	s := &Server{entries: srv, cfg: config.Default().Server}
 	handler := s.RegisterRoutes()
 
-	rr := makeRequest(t, handler, http.MethodPost, "/api/items", []byte(`{"value":"hello"}`))
+	rr := makeRequest(t, handler, http.MethodPost, "/api/entries", []byte(`{"value":"hello"}`))
 
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("expected status %d, got %d", http.StatusCreated, rr.Code)
 	}
 
-	var item database.Item
-	if err := json.Unmarshal(rr.Body.Bytes(), &item); err != nil {
+	var ent entry.Entry
+	if err := json.Unmarshal(rr.Body.Bytes(), &ent); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
 
-	if item.Value != "hello" {
-		t.Fatalf("unexpected value: got %q, want %q", item.Value, "hello")
+	if ent.Value != "hello" {
+		t.Fatalf("unexpected value: got %q, want %q", ent.Value, "hello")
 	}
 
-	if db.createItemCalls != 1 {
-		t.Fatalf("expected 1 create call, got %d", db.createItemCalls)
+	if srv.createEntryCalls != 1 {
+		t.Fatalf("expected 1 create call, got %d", srv.createEntryCalls)
 	}
 }
 
-func TestListItemsHandlerWithItems(t *testing.T) {
-	db := &stubDatabaseService{
-		createItemFunc: func(_ context.Context, _ string) (database.Item, error) {
-			return database.Item{ID: 1, Value: "item", CreatedAt: "2026-01-01T00:00:00Z"}, nil
+func TestListEntriesHandlerWithItems(t *testing.T) {
+	srv := &stubEntryService{
+		listEntriesFunc: func(_ context.Context) ([]entry.Entry, error) {
+			return []entry.Entry{
+				{ID: 1, Value: "first", CreatedAt: "2026-01-01T00:00:00Z"},
+				{ID: 2, Value: "second", CreatedAt: "2026-01-02T00:00:00Z"},
+			}, nil
 		},
 	}
-	// Override ListItems to return data
-	customDB := &customListItemsDB{
-		stubDatabaseService: db,
-		items: []database.Item{
-			{ID: 1, Value: "first", CreatedAt: "2026-01-01T00:00:00Z"},
-			{ID: 2, Value: "second", CreatedAt: "2026-01-02T00:00:00Z"},
-		},
-	}
-	s := &Server{db: customDB, cfg: config.Default().Server}
+	s := &Server{entries: srv, cfg: config.Default().Server}
 	handler := s.RegisterRoutes()
 
-	rr := makeRequest(t, handler, http.MethodGet, "/api/items", nil)
+	rr := makeRequest(t, handler, http.MethodGet, "/api/entries", nil)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d", http.StatusOK, rr.Code)
 	}
 
 	var body struct {
-		Items []database.Item `json:"items"`
+		Entries []entry.Entry `json:"entries"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
 
-	if len(body.Items) != 2 {
-		t.Fatalf("expected 2 items, got %d", len(body.Items))
+	if len(body.Entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(body.Entries))
 	}
 }
 
-type customListItemsDB struct {
-	*stubDatabaseService
-	items []database.Item
-}
-
-func (c *customListItemsDB) ListItems(_ context.Context) ([]database.Item, error) {
-	return c.items, nil
-}
-
-func TestDeleteItemHandlerSuccess(t *testing.T) {
-	db := &stubDatabaseService{}
-	s := &Server{db: db, cfg: config.Default().Server}
+func TestDeleteEntryHandlerSuccess(t *testing.T) {
+	srv := &stubEntryService{}
+	s := &Server{entries: srv, cfg: config.Default().Server}
 	handler := s.RegisterRoutes()
 
-	rr := makeRequest(t, handler, http.MethodDelete, "/api/items/1", nil)
+	rr := makeRequest(t, handler, http.MethodDelete, "/api/entries/1", nil)
 
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("expected status %d, got %d", http.StatusNoContent, rr.Code)
 	}
 
-	if db.deleteItemCalls != 1 {
-		t.Fatalf("expected 1 delete call, got %d", db.deleteItemCalls)
+	if srv.deleteEntryCalls != 1 {
+		t.Fatalf("expected 1 delete call, got %d", srv.deleteEntryCalls)
 	}
 }

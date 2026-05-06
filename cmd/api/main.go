@@ -11,6 +11,7 @@ import (
 
 	"github.com/Matthieusz/AVMS/internal/config"
 	"github.com/Matthieusz/AVMS/internal/database"
+	"github.com/Matthieusz/AVMS/internal/entry"
 	"github.com/Matthieusz/AVMS/internal/server"
 )
 
@@ -68,7 +69,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	srv, err := server.New(cfg.Server, db)
+	entries := entry.NewService(db)
+
+	srv, err := server.New(cfg.Server, entries)
 	if err != nil {
 		slog.Error("failed to initialize server", "error", err)
 		os.Exit(1)
