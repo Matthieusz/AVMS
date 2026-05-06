@@ -15,17 +15,14 @@ import (
 	"github.com/Matthieusz/AVMS/internal/pqc"
 )
 
-const (
-	defaultAllowedOrigin  = "http://localhost:5173"
-	maxCreateItemBodySize = 1024 * 1024
-)
+const maxCreateItemBodySize = 1024 * 1024
 
 type createItemRequest struct {
 	Value string `json:"value"`
 }
 
 func (s *Server) RegisterRoutes() http.Handler {
-	if os.Getenv("GIN_MODE") == "release" {
+	if s.cfg.GinMode == "release" {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
@@ -34,7 +31,7 @@ func (s *Server) RegisterRoutes() http.Handler {
 	r.Use(requestIDMiddleware())
 
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     allowedOriginsFromEnv(),
+		AllowOrigins:     s.cfg.AllowedOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
 		AllowHeaders:     []string{"Accept", "Authorization", "Content-Type"},
 		AllowCredentials: true,
@@ -52,10 +49,7 @@ func (s *Server) RegisterRoutes() http.Handler {
 	}
 
 	// Serve frontend static files when a dist directory is configured.
-	staticDir := os.Getenv("AVMS_STATIC_DIR")
-	if staticDir == "" {
-		staticDir = "./frontend/dist"
-	}
+	staticDir := s.cfg.StaticDir
 	if stat, err := os.Stat(staticDir); err == nil && stat.IsDir() {
 		r.Use(func(c *gin.Context) {
 			if strings.HasPrefix(c.Request.URL.Path, "/api/") {
@@ -177,45 +171,6 @@ func (s *Server) kemCheckHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, result)
-}
-
-func allowedOriginsFromEnv() []string {
-	value := strings.TrimSpace(os.Getenv("AVMS_CORS_ORIGINS"))
-	if value == "" {
-		value = strings.TrimSpace(os.Getenv("CORS_ALLOWED_ORIGINS"))
-	}
-	return parseAllowedOrigins(value)
-}
-
-func parseAllowedOrigins(raw string) []string {
-	value := strings.TrimSpace(raw)
-	if value == "" {
-		return []string{defaultAllowedOrigin}
-	}
-
-	parts := strings.Split(value, ",")
-	origins := make([]string, 0, len(parts))
-	seen := make(map[string]struct{}, len(parts))
-
-	for _, part := range parts {
-		origin := strings.TrimSpace(part)
-		if origin == "" || origin == "*" {
-			continue
-		}
-
-		if _, exists := seen[origin]; exists {
-			continue
-		}
-
-		seen[origin] = struct{}{}
-		origins = append(origins, origin)
-	}
-
-	if len(origins) == 0 {
-		return []string{defaultAllowedOrigin}
-	}
-
-	return origins
 }
 
 func logServerError(c *gin.Context, operation string, err error) {

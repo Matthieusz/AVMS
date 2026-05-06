@@ -9,13 +9,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Matthieusz/AVMS/internal/config"
+	"github.com/Matthieusz/AVMS/internal/database"
 	"github.com/Matthieusz/AVMS/internal/server"
 )
 
-func initLogger() {
-	format := os.Getenv("AVMS_LOG_FORMAT")
+func initLogger(cfg config.Config) {
+	format := cfg.Log.Format
 	if format == "" {
-		format = os.Getenv("GIN_MODE")
+		format = cfg.Server.GinMode
 	}
 
 	var handler slog.Handler
@@ -52,9 +54,21 @@ func gracefulShutdown(srv *server.Server, done chan bool) {
 }
 
 func main() {
-	initLogger()
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("failed to load configuration", "error", err)
+		os.Exit(1)
+	}
 
-	srv, err := server.NewServer()
+	initLogger(cfg)
+
+	db, err := database.New(cfg.DB)
+	if err != nil {
+		slog.Error("failed to initialize database", "error", err)
+		os.Exit(1)
+	}
+
+	srv, err := server.New(cfg.Server, db)
 	if err != nil {
 		slog.Error("failed to initialize server", "error", err)
 		os.Exit(1)

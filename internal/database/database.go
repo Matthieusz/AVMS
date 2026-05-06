@@ -7,15 +7,15 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	_ "github.com/joho/godotenv/autoload"
 	_ "github.com/mattn/go-sqlite3"
+
+	"github.com/Matthieusz/AVMS/internal/config"
 )
 
 //go:embed migrations/*.sql
@@ -57,9 +57,10 @@ var (
 	dbMu       sync.Mutex
 )
 
-const defaultDBURL = "./avms.db"
-
-func New() (Service, error) {
+// New opens the SQLite database described by cfg, applies migrations, and
+// returns a Service. It uses a package-level singleton so repeated calls
+// return the same instance.
+func New(cfg config.DBConfig) (Service, error) {
 	dbMu.Lock()
 	defer dbMu.Unlock()
 
@@ -68,10 +69,9 @@ func New() (Service, error) {
 		return dbInstance, nil
 	}
 
-	dburl := databaseURL()
-	db, err := sql.Open("sqlite3", dburl)
+	db, err := sql.Open("sqlite3", cfg.URL)
 	if err != nil {
-		return nil, fmt.Errorf("open sqlite database %q: %w", dburl, err)
+		return nil, fmt.Errorf("open sqlite database %q: %w", cfg.URL, err)
 	}
 
 	// SQLite-specific connection pool tuning
@@ -81,7 +81,7 @@ func New() (Service, error) {
 
 	instance := &service{
 		db:  db,
-		dsn: dburl,
+		dsn: cfg.URL,
 	}
 
 	if err := instance.configureSQLite(); err != nil {
@@ -101,18 +101,6 @@ func New() (Service, error) {
 	dbInstance = instance
 
 	return dbInstance, nil
-}
-
-func databaseURL() string {
-	value := strings.TrimSpace(os.Getenv("AVMS_DB_URL"))
-	if value == "" {
-		value = strings.TrimSpace(os.Getenv("BLUEPRINT_DB_URL"))
-	}
-	if value == "" {
-		return defaultDBURL
-	}
-
-	return value
 }
 
 func (s *service) configureSQLite() error {

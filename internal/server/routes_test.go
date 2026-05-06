@@ -6,11 +6,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/Matthieusz/AVMS/internal/config"
 	"github.com/Matthieusz/AVMS/internal/database"
 )
 
@@ -93,7 +93,7 @@ func decodeErrorMessage(t *testing.T, body *bytes.Buffer) string {
 }
 
 func TestHelloWorldHandler(t *testing.T) {
-	s := &Server{}
+	s := &Server{cfg: config.Default().Server}
 	r := gin.New()
 	r.GET("/api/", s.HelloWorldHandler)
 	rr := makeRequest(t, r, http.MethodGet, "/api/", nil)
@@ -110,7 +110,7 @@ func TestHelloWorldHandler(t *testing.T) {
 }
 
 func TestKEMCheckHandler(t *testing.T) {
-	s := &Server{}
+	s := &Server{cfg: config.Default().Server}
 	r := gin.New()
 	r.GET("/api/pqc/kem-check", s.kemCheckHandler)
 
@@ -168,10 +168,10 @@ func TestKEMCheckHandler(t *testing.T) {
 
 func TestCreateItemHandlerRejectsInvalidJSON(t *testing.T) {
 	db := &stubDatabaseService{}
-	s := &Server{db: db}
+	s := &Server{db: db, cfg: config.Default().Server}
 	handler := s.RegisterRoutes()
 
-	rr := makeRequest(t, handler, http.MethodPost, "/api/items", []byte(`{"value":`))
+	rr := makeRequest(t, handler, http.MethodPost, "/api/items", []byte(`{"value":}`))
 
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rr.Code)
@@ -188,7 +188,7 @@ func TestCreateItemHandlerRejectsInvalidJSON(t *testing.T) {
 
 func TestCreateItemHandlerRejectsBlankValue(t *testing.T) {
 	db := &stubDatabaseService{}
-	s := &Server{db: db}
+	s := &Server{db: db, cfg: config.Default().Server}
 	handler := s.RegisterRoutes()
 
 	rr := makeRequest(t, handler, http.MethodPost, "/api/items", []byte(`{"value":"   "}`))
@@ -208,7 +208,7 @@ func TestCreateItemHandlerRejectsBlankValue(t *testing.T) {
 
 func TestCreateItemHandlerRejectsOversizedBody(t *testing.T) {
 	db := &stubDatabaseService{}
-	s := &Server{db: db}
+	s := &Server{db: db, cfg: config.Default().Server}
 	handler := s.RegisterRoutes()
 
 	largeValue := strings.Repeat("a", maxCreateItemBodySize)
@@ -241,7 +241,7 @@ func TestDeleteItemHandlerRejectsInvalidIDs(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			db := &stubDatabaseService{}
-			s := &Server{db: db}
+			s := &Server{db: db, cfg: config.Default().Server}
 			handler := s.RegisterRoutes()
 
 			rr := makeRequest(t, handler, http.MethodDelete, tt.path, nil)
@@ -261,42 +261,9 @@ func TestDeleteItemHandlerRejectsInvalidIDs(t *testing.T) {
 	}
 }
 
-func TestParseAllowedOrigins(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  []string
-	}{
-		{
-			name:  "empty uses default",
-			input: "",
-			want:  []string{defaultAllowedOrigin},
-		},
-		{
-			name:  "parses and deduplicates origins",
-			input: " http://localhost:3000, http://localhost:5173, http://localhost:3000, *, ",
-			want:  []string{"http://localhost:3000", "http://localhost:5173"},
-		},
-		{
-			name:  "only invalid entries falls back",
-			input: " , *, ",
-			want:  []string{defaultAllowedOrigin},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := parseAllowedOrigins(tt.input)
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Fatalf("unexpected origins: got %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestHealthHandler(t *testing.T) {
 	db := &stubDatabaseService{}
-	s := &Server{db: db}
+	s := &Server{db: db, cfg: config.Default().Server}
 	handler := s.RegisterRoutes()
 
 	rr := makeRequest(t, handler, http.MethodGet, "/api/health", nil)
@@ -317,7 +284,7 @@ func TestHealthHandler(t *testing.T) {
 
 func TestCreateItemHandlerSuccess(t *testing.T) {
 	db := &stubDatabaseService{}
-	s := &Server{db: db}
+	s := &Server{db: db, cfg: config.Default().Server}
 	handler := s.RegisterRoutes()
 
 	rr := makeRequest(t, handler, http.MethodPost, "/api/items", []byte(`{"value":"hello"}`))
@@ -354,7 +321,7 @@ func TestListItemsHandlerWithItems(t *testing.T) {
 			{ID: 2, Value: "second", CreatedAt: "2026-01-02T00:00:00Z"},
 		},
 	}
-	s := &Server{db: customDB}
+	s := &Server{db: customDB, cfg: config.Default().Server}
 	handler := s.RegisterRoutes()
 
 	rr := makeRequest(t, handler, http.MethodGet, "/api/items", nil)
@@ -386,7 +353,7 @@ func (c *customListItemsDB) ListItems(_ context.Context) ([]database.Item, error
 
 func TestDeleteItemHandlerSuccess(t *testing.T) {
 	db := &stubDatabaseService{}
-	s := &Server{db: db}
+	s := &Server{db: db, cfg: config.Default().Server}
 	handler := s.RegisterRoutes()
 
 	rr := makeRequest(t, handler, http.MethodDelete, "/api/items/1", nil)

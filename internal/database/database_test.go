@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/Matthieusz/AVMS/internal/config"
 )
 
 func newTestService(t *testing.T) Service {
@@ -15,9 +17,8 @@ func newTestService(t *testing.T) Service {
 
 	dir := t.TempDir()
 	dsn := filepath.Join(dir, "test.db")
-	t.Setenv("AVMS_DB_URL", dsn)
 
-	srv, err := New()
+	srv, err := New(config.DBConfig{URL: dsn})
 	if err != nil {
 		t.Fatalf("failed to create test database: %v", err)
 	}
@@ -163,9 +164,8 @@ func TestClose(t *testing.T) {
 
 	dir := t.TempDir()
 	dsn := filepath.Join(dir, "test.db")
-	t.Setenv("AVMS_DB_URL", dsn)
 
-	srv, err := New()
+	srv, err := New(config.DBConfig{URL: dsn})
 	if err != nil {
 		t.Fatalf("failed to create database: %v", err)
 	}
@@ -186,7 +186,6 @@ func TestLegacyMigrationSeeding(t *testing.T) {
 
 	dir := t.TempDir()
 	dsn := filepath.Join(dir, "legacy.db")
-	t.Setenv("AVMS_DB_URL", dsn)
 
 	// Manually create the entries table (simulating an old database)
 	importRaw := os.Getenv("CGO_ENABLED")
@@ -202,7 +201,7 @@ func TestLegacyMigrationSeeding(t *testing.T) {
 	// Use raw sqlite3 to create old schema
 	// Since we can't easily import sqlite3 here without cgo, we'll test this
 	// indirectly by verifying migrations work on a fresh DB.
-	srv, err := New()
+	srv, err := New(config.DBConfig{URL: dsn})
 	if err != nil {
 		t.Fatalf("failed to create database: %v", err)
 	}

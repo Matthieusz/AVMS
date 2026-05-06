@@ -4,38 +4,28 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
-	"strconv"
-	"strings"
 	"time"
 
-	_ "github.com/joho/godotenv/autoload"
-
+	"github.com/Matthieusz/AVMS/internal/config"
 	"github.com/Matthieusz/AVMS/internal/database"
 )
 
+// Server is the HTTP server module.
 type Server struct {
 	db         database.Service
+	cfg        config.ServerConfig
 	httpServer *http.Server
 }
 
-const defaultPort = 8080
-
-func NewServer() (*Server, error) {
-	port, err := portFromEnv()
-	if err != nil {
-		return nil, err
+// New creates a Server wired with the given configuration and database.
+func New(cfg config.ServerConfig, db database.Service) (*Server, error) {
+	s := &Server{
+		db:  db,
+		cfg: cfg,
 	}
-
-	db, err := database.New()
-	if err != nil {
-		return nil, fmt.Errorf("initialize database: %w", err)
-	}
-
-	s := &Server{db: db}
 
 	s.httpServer = &http.Server{
-		Addr:         fmt.Sprintf(":%d", port),
+		Addr:         fmt.Sprintf(":%d", cfg.Port),
 		Handler:      s.RegisterRoutes(),
 		IdleTimeout:  time.Minute,
 		ReadTimeout:  10 * time.Second,
@@ -55,30 +45,4 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 func (s *Server) Close() error {
 	return s.db.Close()
-}
-
-func portFromEnv() (int, error) {
-	value := os.Getenv("AVMS_PORT")
-	if value == "" {
-		value = os.Getenv("PORT")
-	}
-	return resolvePort(value)
-}
-
-func resolvePort(rawValue string) (int, error) {
-	value := strings.TrimSpace(rawValue)
-	if value == "" {
-		return defaultPort, nil
-	}
-
-	port, err := strconv.Atoi(value)
-	if err != nil {
-		return 0, fmt.Errorf("invalid PORT value %q: %w", value, err)
-	}
-
-	if port < 1 || port > 65535 {
-		return 0, fmt.Errorf("PORT out of range: %d", port)
-	}
-
-	return port, nil
 }
