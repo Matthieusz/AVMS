@@ -1,257 +1,151 @@
-import { useForm } from "@tanstack/react-form";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
-import { createItem, deleteItem, getHealth, getItems } from "@/lib/api";
+import { useState, useEffect } from 'react';
+import { Scene } from '@/components/Scene';
+import { getPhaseLabel, getTimeRemaining, trafficState, type LightColor } from '@/stores/trafficStore';
+import { IconInfoCircle, IconMap, IconWifi, IconTrafficLights } from '@tabler/icons-react';
 
-function App() {
-  const queryClient = useQueryClient();
-  const [deletingItemId, setDeletingItemId] = useState<number | null>(null);
+function LightIndicator({ color, label, path }: { color: LightColor; label: string; path: 'north' | 'south' | 'east' | 'west' }) {
+  const colorClasses: Record<LightColor, string> = {
+    red: 'bg-red-500 shadow-red-500/50',
+    yellow: 'bg-yellow-400 shadow-yellow-400/50',
+    green: 'bg-green-500 shadow-green-500/50',
+  };
 
-  const healthQuery = useQuery({
-    queryKey: ["health"],
-    queryFn: getHealth,
-    refetchInterval: 30_000,
-  });
+  const dimClasses: Record<LightColor, string> = {
+    red: 'bg-red-900/40',
+    yellow: 'bg-yellow-900/40',
+    green: 'bg-green-900/40',
+  };
 
-  const itemsQuery = useQuery({
-    queryKey: ["items"],
-    queryFn: getItems,
-  });
-
-  const createItemMutation = useMutation({
-    mutationFn: createItem,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["items"] });
-      toast.success("Entry created successfully");
-    },
-    onError: (error) => {
-      toast.error(error.message);
-    },
-  });
-
-  const deleteItemMutation = useMutation({
-    mutationFn: deleteItem,
-    onSuccess: () => {
-      setDeletingItemId(null);
-      void queryClient.invalidateQueries({ queryKey: ["items"] });
-      toast.success("Entry removed");
-    },
-    onError: (error) => {
-      setDeletingItemId(null);
-      toast.error(error.message);
-    },
-  });
-
-  const form = useForm({
-    defaultValues: {
-      value: "",
-    },
-    onSubmit: async ({ value }) => {
-      await createItemMutation.mutateAsync(value.value.trim());
-      form.reset();
-    },
-  });
-
-  const hasItems = (itemsQuery.data?.items.length ?? 0) > 0;
+  const isActive = trafficState[path] === color;
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_hsl(var(--primary)/0.16),_transparent_42%),linear-gradient(180deg,_hsl(var(--background)),_hsl(var(--muted)/0.5))] px-4 py-10 sm:px-6">
-      <section className="mx-auto flex w-full max-w-4xl flex-col gap-6">
-        <header className="rounded-3xl border border-border/80 bg-card/85 p-6 shadow-sm backdrop-blur sm:p-8">
-          <p className="text-xs font-semibold tracking-[0.22em] text-muted-foreground uppercase">
-            AVMS Console
-          </p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
-            API + SQLite Control Panel
-          </h1>
-          <p className="mt-3 max-w-2xl text-sm text-muted-foreground sm:text-base">
-            Health checks, inserts, and deletes in one Tailwind + shadcn UI.
-          </p>
-        </header>
+    <div className="flex items-center gap-1.5">
+      <span className="text-[10px] w-8 text-slate-400 uppercase tracking-wide">{label}</span>
+      <div
+        className={`h-2.5 w-2.5 rounded-full transition-all duration-300 ${
+          isActive ? colorClasses[color] : dimClasses[color]
+        } ${isActive ? 'shadow-[0_0_6px]' : ''}`}
+      />
+    </div>
+  );
+}
 
-        <section className="rounded-3xl border border-border/80 bg-card/90 p-5 shadow-sm sm:p-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold text-foreground">Service Health</h2>
-            {healthQuery.data ? (
-              <span
-                className={
-                  healthQuery.data.status === "up"
-                    ? "rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700"
-                    : "rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-700"
-                }
-              >
-                {healthQuery.data.status === "up" ? "Connected" : "Disconnected"}
-              </span>
-            ) : null}
+function TrafficStatusPanel() {
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => setTick((t) => t + 1), 100);
+    return () => clearInterval(interval);
+  }, []);
+
+  const phase = getPhaseLabel();
+  const remaining = getTimeRemaining();
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4 shadow-xl backdrop-blur-md">
+      <div className="mb-3 flex items-center gap-2">
+        <IconTrafficLights className="h-4 w-4 text-amber-400" />
+        <h2 className="text-sm font-semibold text-white">Traffic Control</h2>
+      </div>
+
+      <div className="mb-3 flex items-center justify-between">
+        <span className="text-xs text-slate-400">Phase</span>
+        <span className="rounded-lg bg-slate-800/80 px-2 py-0.5 text-xs font-medium text-white">
+          {phase}
+        </span>
+      </div>
+
+      <div className="mb-3 flex items-center justify-between">
+        <span className="text-xs text-slate-400">Remaining</span>
+        <span className="text-xs font-mono text-slate-300">{remaining.toFixed(1)}s</span>
+      </div>
+
+      <div className="space-y-1.5 border-t border-white/5 pt-3">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] text-slate-500 uppercase tracking-wide">NS Road</span>
+          <div className="flex gap-2">
+            <LightIndicator color={trafficState.north} label="N" path="north" />
+            <LightIndicator color={trafficState.south} label="S" path="south" />
           </div>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] text-slate-500 uppercase tracking-wide">EW Road</span>
+          <div className="flex gap-2">
+            <LightIndicator color={trafficState.east} label="E" path="east" />
+            <LightIndicator color={trafficState.west} label="W" path="west" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
-          {healthQuery.isLoading ? (
-            <p className="mt-3 text-sm text-muted-foreground">Connecting to API...</p>
-          ) : null}
+function App() {
+  const [showInfo, setShowInfo] = useState(true);
 
-          {healthQuery.isError ? (
-            <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {healthQuery.error.message}
+  return (
+    <div className="relative h-screen w-screen overflow-hidden bg-slate-900">
+      <Scene />
+
+      {/* Header overlay */}
+      <div className="pointer-events-none absolute top-0 left-0 right-0 flex items-start justify-between p-5">
+        <div className="pointer-events-auto rounded-2xl border border-white/10 bg-slate-950/70 px-5 py-4 shadow-xl backdrop-blur-md">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/15">
+              <IconMap className="h-5 w-5 text-emerald-400" />
+            </div>
+            <div>
+              <h1 className="text-base font-semibold tracking-tight text-white">
+                AVMS Simulation
+              </h1>
+              <p className="text-xs text-slate-400">
+                Isometric V2X junction view
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <button
+          onClick={() => setShowInfo((s) => !s)}
+          className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-slate-950/70 text-slate-300 shadow-lg backdrop-blur-md transition-colors hover:bg-slate-900/90 hover:text-white"
+          aria-label="Toggle info"
+        >
+          <IconInfoCircle className="h-5 w-5" />
+        </button>
+      </div>
+
+      {/* Info panels */}
+      {showInfo && (
+        <div className="pointer-events-none absolute right-5 bottom-5 flex max-w-xs flex-col gap-3">
+          <TrafficStatusPanel />
+
+          <div className="pointer-events-auto rounded-2xl border border-white/10 bg-slate-950/70 p-4 shadow-xl backdrop-blur-md">
+            <div className="mb-2 flex items-center gap-2">
+              <IconWifi className="h-4 w-4 text-sky-400" />
+              <h2 className="text-sm font-semibold text-white">RSU Coverage</h2>
+            </div>
+            <p className="text-xs leading-relaxed text-slate-400">
+              4 Roadside Units (RSU) are positioned at the junction corners.
+              The blue pulses indicate active V2X broadcast range.
             </p>
-          ) : null}
-
-          {healthQuery.data ? (
-            <dl className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="rounded-xl border border-border/80 bg-background/70 p-3">
-                <dt className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                  Status
-                </dt>
-                <dd className="mt-1 text-sm font-medium text-foreground">
-                  {healthQuery.data.status}
-                </dd>
-              </div>
-              <div className="rounded-xl border border-border/80 bg-background/70 p-3">
-                <dt className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                  Service
-                </dt>
-                <dd className="mt-1 text-sm font-medium text-foreground">
-                  {healthQuery.data.service}
-                </dd>
-              </div>
-              <div className="rounded-xl border border-border/80 bg-background/70 p-3">
-                <dt className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                  Message
-                </dt>
-                <dd className="mt-1 text-sm font-medium text-foreground">
-                  {healthQuery.data.message}
-                </dd>
-              </div>
-              <div className="rounded-xl border border-border/80 bg-background/70 p-3">
-                <dt className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                  Timestamp
-                </dt>
-                <dd className="mt-1 text-sm font-medium text-foreground">
-                  {new Date(healthQuery.data.timestamp).toLocaleString()}
-                </dd>
-              </div>
-            </dl>
-          ) : null}
-        </section>
-
-        <section className="rounded-3xl border border-border/80 bg-card/90 p-5 shadow-sm sm:p-6">
-          <h2 className="text-lg font-semibold text-foreground">Data Entries</h2>
-
-          <form
-            className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-start"
-            onSubmit={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              void form.handleSubmit();
-            }}
-          >
-            <form.Field
-              name="value"
-              validators={{
-                onSubmit: ({ value }: { value: string }): string | undefined => {
-                  if (value.trim().length < 2) {
-                    return "Please enter at least 2 characters.";
-                  }
-                  return undefined;
-                },
-              }}
-            >
-              {(field) => (
-                <div className="flex flex-col gap-2">
-                  <label className="text-sm font-medium text-foreground" htmlFor={field.name}>
-                    Value
-                  </label>
-                  <input
-                    id={field.name}
-                    name={field.name}
-                    type="text"
-                    placeholder="Enter a value"
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => field.handleChange(event.target.value)}
-                    disabled={createItemMutation.isPending}
-                    aria-invalid={Boolean(field.state.meta.errors[0])}
-                    className="h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-                  />
-                  {field.state.meta.errors[0] ? (
-                    <p className="text-sm text-red-700" role="alert">
-                      {String(field.state.meta.errors[0])}
-                    </p>
-                  ) : null}
-                </div>
-              )}
-            </form.Field>
-
-            <Button type="submit" className="h-10 sm:mt-7" disabled={createItemMutation.isPending}>
-              {createItemMutation.isPending ? "Saving..." : "Add Entry"}
-            </Button>
-          </form>
-
-          {createItemMutation.isError ? (
-            <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {createItemMutation.error.message}
+            <div className="mt-2 flex flex-wrap gap-2">
+              <span className="rounded-lg bg-emerald-500/10 px-2 py-1 text-[10px] font-medium text-emerald-400">
+                8 Vehicles
+              </span>
+              <span className="rounded-lg bg-sky-500/10 px-2 py-1 text-[10px] font-medium text-sky-400">
+                4 RSUs
+              </span>
+              <span className="rounded-lg bg-amber-500/10 px-2 py-1 text-[10px] font-medium text-amber-400">
+                4 Traffic Lights
+              </span>
+            </div>
+            <p className="mt-2 text-[10px] text-slate-500">
+              Drag to pan • Scroll to zoom
             </p>
-          ) : null}
-
-          {itemsQuery.isLoading ? (
-            <p className="mt-4 text-sm text-muted-foreground">Loading entries...</p>
-          ) : null}
-
-          {itemsQuery.isError ? (
-            <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {itemsQuery.error.message}
-            </p>
-          ) : null}
-
-          {hasItems ? (
-            <ul className="mt-4 space-y-2">
-              {itemsQuery.data?.items.map((item) => (
-                <li
-                  key={item.id}
-                  className="flex flex-col gap-2 rounded-xl border border-border/80 bg-background/70 p-3 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{item.value}</p>
-                    <time className="text-xs text-muted-foreground" dateTime={item.createdAt}>
-                      {new Date(item.createdAt).toLocaleString()}
-                    </time>
-                  </div>
-
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => {
-                      setDeletingItemId(item.id);
-                      void deleteItemMutation.mutateAsync(item.id);
-                    }}
-                    disabled={deleteItemMutation.isPending && deletingItemId === item.id}
-                    aria-label={`Remove entry ${item.value}`}
-                  >
-                    {deleteItemMutation.isPending && deletingItemId === item.id
-                      ? "Removing..."
-                      : "Remove"}
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-
-          {itemsQuery.data && itemsQuery.data.items.length === 0 ? (
-            <p className="mt-4 rounded-xl border border-dashed border-border/80 bg-muted/30 px-4 py-6 text-center text-sm text-muted-foreground">
-              No entries yet. Add your first one.
-            </p>
-          ) : null}
-
-          {deleteItemMutation.isError ? (
-            <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {deleteItemMutation.error.message}
-            </p>
-          ) : null}
-        </section>
-      </section>
-    </main>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
