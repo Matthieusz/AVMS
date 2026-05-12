@@ -49,6 +49,7 @@ func (s *Server) RegisterRoutes() http.Handler {
 		api.GET("/items", s.listItemsHandler)
 		api.POST("/items", s.createItemHandler)
 		api.DELETE("/items/:id", s.deleteItemHandler)
+		api.GET("/ws", s.wsHandler)
 	}
 
 	// Serve frontend static files when a dist directory is configured.

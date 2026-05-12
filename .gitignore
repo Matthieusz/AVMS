@@ -34,3 +34,11 @@ main
 
 # OS X generated file
 .DS_Store
+
+# Additional Build Artifacts
+avms-api
+api
+
+# SQLite temp files
+*.db-*
+

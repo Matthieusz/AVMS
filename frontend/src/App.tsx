@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Scene } from '@/components/Scene';
 import { getPhaseLabel, getTimeRemaining, trafficState, type LightColor } from '@/stores/trafficStore';
-import { IconInfoCircle, IconMap, IconWifi, IconTrafficLights } from '@tabler/icons-react';
+import { useV2XStore } from '@/stores/v2xStore';
+import { IconInfoCircle, IconMap, IconWifi, IconTrafficLights, IconMessageCircle2 } from '@tabler/icons-react';
 
 function LightIndicator({ color, label, path }: { color: LightColor; label: string; path: 'north' | 'south' | 'east' | 'west' }) {
   const colorClasses: Record<LightColor, string> = {
@@ -80,8 +81,60 @@ function TrafficStatusPanel() {
   );
 }
 
+function V2XMessagesPanel() {
+  const messages = useV2XStore((state) => state.messages);
+  const connected = useV2XStore((state) => state.connected);
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4 shadow-xl backdrop-blur-md h-64 flex flex-col mt-3">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <IconMessageCircle2 className="h-4 w-4 text-emerald-400" />
+          <h2 className="text-sm font-semibold text-white">V2X Activity</h2>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className={`h-2 w-2 rounded-full ${connected ? 'bg-emerald-500 shadow-[0_0_6px_#10b981]' : 'bg-red-500'}`} />
+          <span className="text-[10px] text-slate-400 uppercase tracking-wide">
+            {connected ? 'WS Connected' : 'Disconnected'}
+          </span>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar text-xs">
+        {messages.length === 0 ? (
+          <p className="text-slate-500 text-center mt-6">No messages yet...</p>
+        ) : (
+          messages.map((m) => (
+            <div key={m.id} className="bg-slate-900/50 p-2 rounded border border-white/5">
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-blue-400 font-mono">[{m.carId}]</span>
+                <span className="text-slate-400 text-[10px]">
+                  {m.timestamp.toLocaleTimeString()}
+                </span>
+              </div>
+              <div className="flex gap-2 items-start">
+                <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${m.direction === 'in' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}`}>
+                  {m.direction === 'in' ? '↓' : '↑'} {m.type}
+                </span>
+                <span className="text-slate-300 flex-1 truncate" title={m.payload}>
+                  {m.payload}
+                </span>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [showInfo, setShowInfo] = useState(true);
+  const connectV2X = useV2XStore((state) => state.connect);
+
+  useEffect(() => {
+    connectV2X();
+  }, [connectV2X]);
 
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-slate-900">
@@ -116,8 +169,9 @@ function App() {
 
       {/* Info panels */}
       {showInfo && (
-        <div className="pointer-events-none absolute right-5 bottom-5 flex max-w-xs flex-col gap-3">
+        <div className="pointer-events-none absolute right-5 bottom-5 flex max-w-sm flex-col gap-3 w-80">
           <TrafficStatusPanel />
+          <V2XMessagesPanel />
 
           <div className="pointer-events-auto rounded-2xl border border-white/10 bg-slate-950/70 p-4 shadow-xl backdrop-blur-md">
             <div className="mb-2 flex items-center gap-2">
