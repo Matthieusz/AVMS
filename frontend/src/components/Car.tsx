@@ -1,11 +1,18 @@
 import { useRef, useMemo, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Box } from '@react-three/drei';
+import { Box, Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { getLightColorForPath } from '@/stores/trafficStore';
 import { registerCar, updateCar, unregisterCar, getCarAhead } from '@/stores/carStore';
+import {
+  registerVehicleCommunication,
+  unregisterVehicleCommunication,
+  useCommunicationSnapshot,
+  updateVehicleCommunication,
+} from '@/stores/communicationStore';
 
 interface CarProps {
+  vehicleId: string;
   path: 'north' | 'south' | 'east' | 'west';
   lane: 'left' | 'right';
   speed?: number;
@@ -20,11 +27,12 @@ const SAFE_FOLLOW_DISTANCE = 12;
 const FOLLOW_BUFFER = 3;
 const BRAKE_ZONE = 14;
 
-export function Car({ path, lane, speed: baseSpeed = 4, color = '#ef4444', startOffset = 0 }: CarProps) {
+export function Car({ vehicleId, path, lane, speed: baseSpeed = 4, color = '#ef4444', startOffset = 0 }: CarProps) {
   const ref = useRef<THREE.Group>(null);
   const progress = useRef(startOffset);
   const currentSpeed = useRef(baseSpeed);
-  const carId = useRef(`car-${Math.random().toString(36).slice(2, 9)}`);
+  const carId = useRef(vehicleId);
+  const communicationSnapshot = useCommunicationSnapshot();
 
   const { startPos, direction, axis } = useMemo(() => {
     const offset = lane === 'left' ? -LANE_OFFSET : LANE_OFFSET;
@@ -43,8 +51,24 @@ export function Car({ path, lane, speed: baseSpeed = 4, color = '#ef4444', start
   useEffect(() => {
     const id = carId.current;
     registerCar(id, path, lane);
-    return () => unregisterCar(id);
-  }, [path, lane]);
+    registerVehicleCommunication({
+      vehicleId,
+      path,
+      lane,
+      stage: 'idle',
+      message: 'Scanning for RSU beacons',
+      sessionKeyRef: createSessionKeyRef(vehicleId),
+      rsuId: rsuIdForPath(path),
+      kemAlgorithm: 'ML-KEM-768',
+      signatureAlgorithm: 'ML-DSA',
+      sessionCipher: 'AES-256-GCM',
+      bubbleVisible: false,
+    });
+    return () => {
+      unregisterCar(id);
+      unregisterVehicleCommunication(vehicleId);
+    };
+  }, [lane, path, vehicleId]);
 
   useFrame((_, delta) => {
     if (!ref.current) return;
@@ -106,10 +130,33 @@ export function Car({ path, lane, speed: baseSpeed = 4, color = '#ef4444', start
       ref.current.position.set(pos * direction, startPos.y, startPos.z);
       ref.current.rotation.set(0, direction > 0 ? -Math.PI / 2 : Math.PI / 2, 0);
     }
+
+    const communicationState = deriveCommunicationState({
+      vehicleId,
+      path,
+      wrappedProgress: wrapped,
+      lightColor,
+      moving: currentSpeed.current > 0.45,
+    });
+
+    updateVehicleCommunication(vehicleId, communicationState);
   });
+
+  const communication = communicationSnapshot.vehicles.find((entry) => entry.vehicleId === vehicleId) ?? null;
 
   return (
     <group ref={ref} position={startPos.toArray()} castShadow>
+      {communication?.bubbleVisible ? (
+        <Html position={[0, 1.75, 0]} transform sprite distanceFactor={22} pointerEvents="none" zIndexRange={[400, 0]}>
+          <div className="max-w-[7.5rem] rounded-md border border-cyan-300/35 bg-slate-950/85 px-2 py-1 text-center shadow-[0_8px_18px_rgba(2,6,23,0.38)] backdrop-blur-sm">
+            <div className="truncate text-[8px] font-semibold uppercase tracking-[0.18em] text-cyan-300">
+              {communication.vehicleId}
+            </div>
+            <div className="truncate text-[9px] leading-tight text-white">{communication.message}</div>
+          </div>
+        </Html>
+      ) : null}
+
       {/* Body */}
       <Box args={[1.6, 0.7, 3.2]} position={[0, 0.35, 0]} castShadow>
         <meshStandardMaterial color={color} roughness={0.3} metalness={0.2} />
@@ -140,4 +187,127 @@ export function Car({ path, lane, speed: baseSpeed = 4, color = '#ef4444', start
       ))}
     </group>
   );
+}
+
+function rsuIdForPath(path: CarProps['path']) {
+  switch (path) {
+    case 'north':
+      return 'rsu-north';
+    case 'south':
+      return 'rsu-south';
+    case 'east':
+      return 'rsu-east';
+    case 'west':
+      return 'rsu-west';
+  }
+}
+
+function createSessionKeyRef(vehicleId: string) {
+  return `sess-${vehicleId.slice(-2)}a7`;
+}
+
+function deriveCommunicationState({
+  vehicleId,
+  path,
+  wrappedProgress,
+  lightColor,
+  moving,
+}: {
+  vehicleId: string;
+  path: CarProps['path'];
+  wrappedProgress: number;
+  lightColor: 'red' | 'yellow' | 'green';
+  moving: boolean;
+}) {
+  const rsuId = rsuIdForPath(path);
+  const sessionKeyRef = createSessionKeyRef(vehicleId);
+
+  if (!moving && wrappedProgress > 13 && wrappedProgress < 26) {
+    return {
+      stage: 'waiting' as const,
+      message: lightColor === 'red' ? 'Holding secure session at red light' : 'Preparing green-light release',
+      sessionKeyRef,
+      rsuId,
+      kemAlgorithm: 'ML-KEM-768',
+      signatureAlgorithm: 'ML-DSA',
+      sessionCipher: 'AES-256-GCM',
+      bubbleVisible: true,
+    };
+  }
+
+  if (wrappedProgress < 10) {
+    return {
+      stage: 'idle' as const,
+      message: 'Scanning V2X edge coverage',
+      sessionKeyRef,
+      rsuId,
+      kemAlgorithm: 'ML-KEM-768',
+      signatureAlgorithm: 'ML-DSA',
+      sessionCipher: 'AES-256-GCM',
+      bubbleVisible: false,
+    };
+  }
+
+  if (wrappedProgress < 16) {
+    return {
+      stage: 'beacon' as const,
+      message: `Beacon verified from ${rsuId}`,
+      sessionKeyRef,
+      rsuId,
+      kemAlgorithm: 'ML-KEM-768',
+      signatureAlgorithm: 'ML-DSA',
+      sessionCipher: 'AES-256-GCM',
+      bubbleVisible: true,
+    };
+  }
+
+  if (wrappedProgress < 22) {
+    return {
+      stage: 'auth' as const,
+      message: 'Vehicle certificate checked with ML-DSA',
+      sessionKeyRef,
+      rsuId,
+      kemAlgorithm: 'ML-KEM-768',
+      signatureAlgorithm: 'ML-DSA',
+      sessionCipher: 'AES-256-GCM',
+      bubbleVisible: true,
+    };
+  }
+
+  if (wrappedProgress < 30) {
+    return {
+      stage: 'join' as const,
+      message: 'Vehicle_Join_Request transmitted',
+      sessionKeyRef,
+      rsuId,
+      kemAlgorithm: 'ML-KEM-768',
+      signatureAlgorithm: 'ML-DSA',
+      sessionCipher: 'AES-256-GCM',
+      bubbleVisible: true,
+    };
+  }
+
+  if (wrappedProgress < 40) {
+    return {
+      stage: 'secure' as const,
+      message: 'AES-256-GCM telemetry tunnel active',
+      sessionKeyRef,
+      rsuId,
+      kemAlgorithm: 'ML-KEM-768',
+      signatureAlgorithm: 'ML-DSA',
+      sessionCipher: 'AES-256-GCM',
+      bubbleVisible: true,
+    };
+  }
+
+  return {
+    stage: 'secure' as const,
+    message: 'Session keepalive with roadside edge',
+    sessionKeyRef,
+    rsuId,
+    kemAlgorithm: 'ML-KEM-768',
+    signatureAlgorithm: 'ML-DSA',
+    sessionCipher: 'AES-256-GCM',
+    bubbleVisible: false,
+  };
 }

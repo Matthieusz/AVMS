@@ -62,20 +62,20 @@ export function Scene() {
       <RSU position={[8, 0, 8]} />
 
       {/* Cars on North road — left lane only */}
-      <Car path="north" lane="left" speed={3.5} color="#ef4444" startOffset={0} />
-      <Car path="north" lane="left" speed={3.2} color="#b91c1c" startOffset={30} />
+      <Car vehicleId="obu-n1" path="north" lane="left" speed={3.5} color="#ef4444" startOffset={0} />
+      <Car vehicleId="obu-n2" path="north" lane="left" speed={3.2} color="#b91c1c" startOffset={30} />
 
       {/* Cars on South road — left lane only */}
-      <Car path="south" lane="left" speed={3.8} color="#10b981" startOffset={8} />
-      <Car path="south" lane="left" speed={3.4} color="#059669" startOffset={38} />
+      <Car vehicleId="obu-s1" path="south" lane="left" speed={3.8} color="#10b981" startOffset={8} />
+      <Car vehicleId="obu-s2" path="south" lane="left" speed={3.4} color="#059669" startOffset={38} />
 
       {/* Cars on East road — left lane only */}
-      <Car path="east" lane="left" speed={3.2} color="#8b5cf6" startOffset={15} />
-      <Car path="east" lane="left" speed={2.8} color="#7c3aed" startOffset={45} />
+      <Car vehicleId="obu-e1" path="east" lane="left" speed={3.2} color="#8b5cf6" startOffset={15} />
+      <Car vehicleId="obu-e2" path="east" lane="left" speed={2.8} color="#7c3aed" startOffset={45} />
 
       {/* Cars on West road — left lane only */}
-      <Car path="west" lane="left" speed={3.6} color="#06b6d4" startOffset={22} />
-      <Car path="west" lane="left" speed={3.2} color="#0891b2" startOffset={52} />
+      <Car vehicleId="obu-w1" path="west" lane="left" speed={3.6} color="#06b6d4" startOffset={22} />
+      <Car vehicleId="obu-w2" path="west" lane="left" speed={3.2} color="#0891b2" startOffset={52} />
     </Canvas>
   );
 }

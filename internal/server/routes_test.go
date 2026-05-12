@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -12,11 +13,21 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/Matthieusz/AVMS/internal/database"
+	"github.com/Matthieusz/AVMS/internal/pqc"
 )
 
 type stubDatabaseService struct {
 	createItemCalls int
 	deleteItemCalls int
+
+	registerVehicleFunc  func(ctx context.Context, input database.RegisterVehicleInput) (database.VehicleRecord, error)
+	issueCredentialFunc  func(ctx context.Context, input database.IssueCredentialInput) (database.CredentialRecord, error)
+	revokeCredentialFunc func(ctx context.Context, input database.RevokeCredentialInput) (database.CredentialRecord, error)
+	rotateKeysFunc       func(ctx context.Context, input database.RotateKeyInput) (database.KeyRotationResult, error)
+	credentialStatusFunc func(ctx context.Context, credentialID string) (database.CredentialRecord, error)
+	currentPolicyFunc    func(ctx context.Context) (database.SecurityPolicy, error)
+	joinVehicleFunc      func(ctx context.Context, input database.JoinVehicleInput) (database.JoinSessionRecord, error)
+	reportIncidentFunc   func(ctx context.Context, input database.IncidentReportInput) (database.IncidentRecord, error)
 
 	createItemFunc func(ctx context.Context, value string) (database.Item, error)
 	deleteItemFunc func(ctx context.Context, id int64) (bool, error)
@@ -24,8 +35,155 @@ type stubDatabaseService struct {
 
 func (s *stubDatabaseService) Health() map[string]string {
 	return map[string]string{
-		"status": "up",
+		"status":    "up",
+		"message":   "healthy",
+		"service":   "api",
+		"timestamp": "2026-01-01T00:00:00Z",
 	}
+}
+
+func (s *stubDatabaseService) RegisterVehicle(ctx context.Context, input database.RegisterVehicleInput) (database.VehicleRecord, error) {
+	if s.registerVehicleFunc != nil {
+		return s.registerVehicleFunc(ctx, input)
+	}
+
+	return database.VehicleRecord{
+		VehicleID:          input.VehicleID,
+		Manufacturer:       input.Manufacturer,
+		HardwareProfile:    input.HardwareProfile,
+		PublicKey:          input.PublicKey,
+		SignatureAlgorithm: firstNonEmptyTest(input.SignatureAlgorithm, database.RecommendedSignatureAlgorithm),
+		Status:             "registered",
+		CreatedAt:          "2026-01-01T00:00:00Z",
+		UpdatedAt:          "2026-01-01T00:00:00Z",
+	}, nil
+}
+
+func (s *stubDatabaseService) IssueCredential(ctx context.Context, input database.IssueCredentialInput) (database.CredentialRecord, error) {
+	if s.issueCredentialFunc != nil {
+		return s.issueCredentialFunc(ctx, input)
+	}
+
+	return database.CredentialRecord{
+		CredentialID: "cred_test",
+		SubjectType:  input.SubjectType,
+		SubjectID:    input.SubjectID,
+		Algorithm:    input.Algorithm,
+		Purpose:      input.Purpose,
+		PublicKey:    input.PublicKey,
+		Status:       "active",
+		Version:      1,
+		ValidFrom:    "2026-01-01T00:00:00Z",
+		ValidTo:      "2026-04-01T00:00:00Z",
+		IssuedAt:     "2026-01-01T00:00:00Z",
+		LastUpdated:  "2026-01-01T00:00:00Z",
+	}, nil
+}
+
+func (s *stubDatabaseService) RevokeCredential(ctx context.Context, input database.RevokeCredentialInput) (database.CredentialRecord, error) {
+	if s.revokeCredentialFunc != nil {
+		return s.revokeCredentialFunc(ctx, input)
+	}
+
+	return database.CredentialRecord{
+		CredentialID: input.CredentialID,
+		Status:       "revoked",
+		RevokedAt:    "2026-01-01T00:00:00Z",
+		RevokeReason: firstNonEmptyTest(input.Reason, "administrative decision"),
+		LastUpdated:  "2026-01-01T00:00:00Z",
+	}, nil
+}
+
+func (s *stubDatabaseService) RotateKeys(ctx context.Context, input database.RotateKeyInput) (database.KeyRotationResult, error) {
+	if s.rotateKeysFunc != nil {
+		return s.rotateKeysFunc(ctx, input)
+	}
+
+	return database.KeyRotationResult{
+		VehicleID:            input.VehicleID,
+		RotationReason:       firstNonEmptyTest(input.Reason, "scheduled rotation"),
+		EffectiveAt:          "2026-01-01T00:00:00Z",
+		RecommendedGraceDays: database.DefaultRotationWindowDays,
+		NewCredential: database.CredentialRecord{
+			CredentialID: "cred_rotated",
+			SubjectType:  "vehicle",
+			SubjectID:    input.VehicleID,
+			Algorithm:    input.Algorithm,
+			Purpose:      "signing",
+			PublicKey:    input.PublicKey,
+			Status:       "active",
+			Version:      2,
+			ValidFrom:    "2026-01-01T00:00:00Z",
+			ValidTo:      "2026-04-01T00:00:00Z",
+			IssuedAt:     "2026-01-01T00:00:00Z",
+			LastUpdated:  "2026-01-01T00:00:00Z",
+		},
+	}, nil
+}
+
+func (s *stubDatabaseService) GetCredentialStatus(ctx context.Context, credentialID string) (database.CredentialRecord, error) {
+	if s.credentialStatusFunc != nil {
+		return s.credentialStatusFunc(ctx, credentialID)
+	}
+
+	return database.CredentialRecord{
+		CredentialID: credentialID,
+		Status:       "active",
+		Algorithm:    database.RecommendedSignatureAlgorithm,
+		Purpose:      "signing",
+		ValidFrom:    "2026-01-01T00:00:00Z",
+		ValidTo:      "2026-04-01T00:00:00Z",
+		IssuedAt:     "2026-01-01T00:00:00Z",
+		LastUpdated:  "2026-01-01T00:00:00Z",
+	}, nil
+}
+
+func (s *stubDatabaseService) GetCurrentPolicy(ctx context.Context) (database.SecurityPolicy, error) {
+	if s.currentPolicyFunc != nil {
+		return s.currentPolicyFunc(ctx)
+	}
+
+	return database.CurrentSecurityPolicy(), nil
+}
+
+func (s *stubDatabaseService) JoinVehicle(ctx context.Context, input database.JoinVehicleInput) (database.JoinSessionRecord, error) {
+	if s.joinVehicleFunc != nil {
+		return s.joinVehicleFunc(ctx, input)
+	}
+
+	return database.JoinSessionRecord{
+		SessionID:          "join_test",
+		VehicleID:          input.VehicleID,
+		RSUID:              input.RSUID,
+		CredentialID:       firstNonEmptyTest(input.CredentialID, "cred_test"),
+		KEMAlgorithm:       firstNonEmptyTest(input.KEMAlgorithm, database.RecommendedKEMAlgorithm),
+		SignatureAlgorithm: firstNonEmptyTest(input.SignatureAlgorithm, database.RecommendedSignatureAlgorithm),
+		SessionCipher:      database.DefaultSessionCipher,
+		SessionKeyRef:      "sess_test",
+		Status:             "accepted",
+		VerificationNotes:  "Simulated onboarding accepted.",
+		SimulationMode:     true,
+		CreatedAt:          "2026-01-01T00:00:00Z",
+		AcceptedAt:         "2026-01-01T00:00:00Z",
+	}, nil
+}
+
+func (s *stubDatabaseService) ReportIncident(ctx context.Context, input database.IncidentReportInput) (database.IncidentRecord, error) {
+	if s.reportIncidentFunc != nil {
+		return s.reportIncidentFunc(ctx, input)
+	}
+
+	return database.IncidentRecord{
+		IncidentID:        "inc_test",
+		SubjectType:       input.SubjectType,
+		SubjectID:         input.SubjectID,
+		CredentialID:      input.CredentialID,
+		Severity:          input.Severity,
+		Description:       input.Description,
+		RecommendedAction: "revoke the active credential, rotate keys, and require a fresh onboarding sequence",
+		Status:            "open",
+		ReportedAt:        "2026-01-01T00:00:00Z",
+	}, nil
 }
 
 func (s *stubDatabaseService) CreateItem(ctx context.Context, value string) (database.Item, error) {
@@ -92,6 +250,15 @@ func decodeErrorMessage(t *testing.T, body *bytes.Buffer) string {
 	return payload.Error
 }
 
+func firstNonEmptyTest(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 func TestHelloWorldHandler(t *testing.T) {
 	s := &Server{}
 	r := gin.New()
@@ -151,8 +318,8 @@ func TestKEMCheckHandler(t *testing.T) {
 		t.Fatal("expected at least one enabled KEM")
 	}
 
-	kemName, ok := body["kemName"].(string)
-	if !ok || kemName != "ML-KEM-512" {
+		kemName, ok := body["kemName"].(string)
+		if !ok || kemName != database.RecommendedKEMAlgorithm {
 		t.Fatalf("unexpected KEM name: got %#v", body["kemName"])
 	}
 
@@ -397,5 +564,103 @@ func TestDeleteItemHandlerSuccess(t *testing.T) {
 
 	if db.deleteItemCalls != 1 {
 		t.Fatalf("expected 1 delete call, got %d", db.deleteItemCalls)
+	}
+}
+
+func TestRegisterVehicleHandlerSuccess(t *testing.T) {
+	db := &stubDatabaseService{}
+	s := &Server{db: db}
+	handler := s.RegisterRoutes()
+
+	rr := makeRequest(t, handler, http.MethodPost, "/api/vehicles/register", []byte(`{"vehicleId":"veh-001","manufacturer":"ACME","hardwareProfile":"TPM-2.0","publicKey":"pk","signatureAlgorithm":"ML-DSA"}`))
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, rr.Code)
+	}
+
+	var body database.VehicleRecord
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if body.VehicleID != "veh-001" || body.Status != "registered" {
+		t.Fatalf("unexpected response body: %+v", body)
+	}
+}
+
+func TestPolicyHandlerSuccess(t *testing.T) {
+	db := &stubDatabaseService{}
+	s := &Server{db: db}
+	handler := s.RegisterRoutes()
+
+	rr := makeRequest(t, handler, http.MethodGet, "/api/policies/current", nil)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, rr.Code)
+	}
+
+	var body database.SecurityPolicy
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if body.RecommendedKEMAlgorithm != database.RecommendedKEMAlgorithm {
+		t.Fatalf("unexpected policy response: %+v", body)
+	}
+}
+
+func TestRSUBeaconHandlerSuccess(t *testing.T) {
+	s := &Server{db: &stubDatabaseService{}}
+	handler := s.RegisterRoutes()
+
+	rr := makeRequest(t, handler, http.MethodGet, "/api/rsus/rsu-01/beacon", nil)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, rr.Code)
+	}
+
+	var body pqc.RSUBeacon
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if body.RSUID != "rsu-01" || body.KEMAlgorithm != database.RecommendedKEMAlgorithm || body.KEMPublicKey == "" {
+		t.Fatalf("unexpected beacon response: %+v", body)
+	}
+}
+
+func TestJoinVehicleHandlerRejectsMissingFields(t *testing.T) {
+	db := &stubDatabaseService{
+		joinVehicleFunc: func(_ context.Context, _ database.JoinVehicleInput) (database.JoinSessionRecord, error) {
+			return database.JoinSessionRecord{}, errors.New("vehicleId, rsuId, ciphertext, signature, and vehicleCertificate are required")
+		},
+	}
+	s := &Server{db: db}
+	handler := s.RegisterRoutes()
+
+	rr := makeRequest(t, handler, http.MethodPost, "/api/vehicles/join", []byte(`{"vehicleId":"veh-001"}`))
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rr.Code)
+	}
+
+	if errMessage := decodeErrorMessage(t, rr.Body); errMessage != "vehicleId, rsuId, ciphertext, signature, and vehicleCertificate are required" {
+		t.Fatalf("unexpected error message: got %q", errMessage)
+	}
+}
+
+func TestCredentialStatusHandlerNotFound(t *testing.T) {
+	db := &stubDatabaseService{
+		credentialStatusFunc: func(_ context.Context, _ string) (database.CredentialRecord, error) {
+			return database.CredentialRecord{}, database.ErrNotFound
+		},
+	}
+	s := &Server{db: db}
+	handler := s.RegisterRoutes()
+
+	rr := makeRequest(t, handler, http.MethodGet, "/api/credentials/missing/status", nil)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected status %d, got %d", http.StatusNotFound, rr.Code)
 	}
 }

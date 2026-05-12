@@ -7,3 +7,11 @@ type KEMCheckResult struct {
 	Details               string   `json:"details"`
 	SharedSecretsCoincide bool     `json:"sharedSecretsCoincide"`
 }
+
+type RSUBeacon struct {
+	RSUID        string `json:"rsuId"`
+	KEMAlgorithm string `json:"kemAlgorithm"`
+	KEMPublicKey string `json:"kemPublicKey"`
+	KeyVersion   string `json:"keyVersion"`
+	Details      string `json:"details"`
+}

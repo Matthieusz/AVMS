@@ -17,9 +17,32 @@ export const HealthResponseSchema = z.object({
   service: z.string(),
 });
 
+export const SecurityPolicySchema = z.object({
+  recommendedKemAlgorithm: z.string(),
+  recommendedSignatureAlgorithm: z.string(),
+  allowedKemAlgorithms: z.array(z.string()),
+  allowedSignatureAlgorithms: z.array(z.string()),
+  sessionCipher: z.string(),
+  credentialValidityDays: z.number().int(),
+  rotationWindowDays: z.number().int(),
+  hybridModeRecommended: z.boolean(),
+  privateKeyStorage: z.string(),
+  notes: z.array(z.string()),
+});
+
+export const RSUBeaconSchema = z.object({
+  rsuId: z.string(),
+  kemAlgorithm: z.string(),
+  kemPublicKey: z.string(),
+  keyVersion: z.string(),
+  details: z.string(),
+});
+
 export type Item = z.infer<typeof ItemSchema>;
 export type ListItemsResponse = z.infer<typeof ListItemsResponseSchema>;
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;
+export type SecurityPolicy = z.infer<typeof SecurityPolicySchema>;
+export type RSUBeacon = z.infer<typeof RSUBeaconSchema>;
 
 class ApiError extends Error {
   status: number;
@@ -50,6 +73,14 @@ async function apiFetch<T>(path: string, schema: z.ZodType<T>, init?: RequestIni
 
 export async function getHealth(): Promise<HealthResponse> {
   return apiFetch("/api/health", HealthResponseSchema);
+}
+
+export async function getCurrentPolicy(): Promise<SecurityPolicy> {
+  return apiFetch("/api/policies/current", SecurityPolicySchema);
+}
+
+export async function getRSUBeacon(rsuId: string): Promise<RSUBeacon> {
+  return apiFetch(`/api/rsus/${rsuId}/beacon`, RSUBeaconSchema);
 }
 
 export async function getItems(): Promise<ListItemsResponse> {

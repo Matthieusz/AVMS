@@ -27,6 +27,30 @@ type Service interface {
 	// The keys and values in the map are service-specific.
 	Health() map[string]string
 
+	// RegisterVehicle creates or updates a vehicle identity record.
+	RegisterVehicle(ctx context.Context, input RegisterVehicleInput) (VehicleRecord, error)
+
+	// IssueCredential stores a new public credential for a subject.
+	IssueCredential(ctx context.Context, input IssueCredentialInput) (CredentialRecord, error)
+
+	// RevokeCredential marks a credential as revoked.
+	RevokeCredential(ctx context.Context, input RevokeCredentialInput) (CredentialRecord, error)
+
+	// RotateKeys supersedes the current credential and issues a new one.
+	RotateKeys(ctx context.Context, input RotateKeyInput) (KeyRotationResult, error)
+
+	// GetCredentialStatus returns the current credential status and metadata.
+	GetCredentialStatus(ctx context.Context, credentialID string) (CredentialRecord, error)
+
+	// GetCurrentPolicy returns the currently enforced security policy.
+	GetCurrentPolicy(ctx context.Context) (SecurityPolicy, error)
+
+	// JoinVehicle records a simulated PQ onboarding flow.
+	JoinVehicle(ctx context.Context, input JoinVehicleInput) (JoinSessionRecord, error)
+
+	// ReportIncident stores a security incident related to a vehicle or credential.
+	ReportIncident(ctx context.Context, input IncidentReportInput) (IncidentRecord, error)
+
 	// CreateItem inserts a new record in the database.
 	CreateItem(ctx context.Context, value string) (Item, error)
 

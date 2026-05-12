@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/Matthieusz/AVMS/internal/database"
 	"github.com/Matthieusz/AVMS/internal/pqc"
 )
 
@@ -46,6 +47,15 @@ func (s *Server) RegisterRoutes() http.Handler {
 		api.GET("/health", s.healthHandler)
 		api.GET("/health/detail", s.healthDetailHandler)
 		api.GET("/pqc/kem-check", s.kemCheckHandler)
+		api.GET("/rsus/:rsuID/beacon", s.rsuBeaconHandler)
+		api.POST("/vehicles/register", s.registerVehicleHandler)
+		api.POST("/vehicles/join", s.joinVehicleHandler)
+		api.POST("/certificates/issue", s.issueCredentialHandler)
+		api.POST("/certificates/revoke", s.revokeCredentialHandler)
+		api.POST("/keys/rotate", s.rotateKeysHandler)
+		api.GET("/credentials/:credentialID/status", s.credentialStatusHandler)
+		api.GET("/policies/current", s.currentPolicyHandler)
+		api.POST("/incidents/report", s.reportIncidentHandler)
 		api.GET("/items", s.listItemsHandler)
 		api.POST("/items", s.createItemHandler)
 		api.DELETE("/items/:id", s.deleteItemHandler)
@@ -88,7 +98,12 @@ func (s *Server) HelloWorldHandler(c *gin.Context) {
 }
 
 func (s *Server) healthHandler(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"status": "up"})
+	if s.db == nil {
+		c.JSON(http.StatusOK, gin.H{"status": "up"})
+		return
+	}
+
+	c.JSON(http.StatusOK, s.db.Health())
 }
 
 func (s *Server) healthDetailHandler(c *gin.Context) {
@@ -169,7 +184,7 @@ func (s *Server) deleteItemHandler(c *gin.Context) {
 }
 
 func (s *Server) kemCheckHandler(c *gin.Context) {
-	result, err := pqc.RunKEMCheck("ML-KEM-512")
+	result, err := pqc.RunKEMCheck(database.RecommendedKEMAlgorithm)
 	if err != nil {
 		logServerError(c, "run KEM check", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to run KEM check"})
